@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#0F1115</color>
+    <color name="surface">#1A1D24</color>
+    <color name="key">#262A33</color>
+    <color name="key_pressed">#353A46</color>
+    <color name="accent">#7C5CFF</color>
+    <color name="rec">#FF4D5E</color>
+    <color name="busy">#3A3F4B</color>
+    <color name="text">#F2F3F5</color>
+    <color name="dim">#9AA0AC</color>
+    <color name="ok">#4ADE80</color>
+</resources>

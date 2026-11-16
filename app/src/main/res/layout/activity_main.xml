@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Murmur"
+            android:textColor="@color/text"
+            android:textSize="30sp"
+            android:textStyle="bold" />
+
+        <TextView
+            style="@style/Hint"
+            android:text="Speak naturally. Clean text lands in any app." />
+
+        <TextView style="@style/Section" android:text="SETUP" />
+        <TextView android:id="@+id/step_mic" style="@style/Step" />
+        <TextView android:id="@+id/step_enable" style="@style/Step" />
+        <TextView android:id="@+id/step_pick" style="@style/Step" />
+
+        <TextView style="@style/Label" android:text="API key" />
+        <EditText
+            android:id="@+id/api_key"
+            style="@style/Field"
+            android:hint="gsk_…"
+            android:inputType="textPassword"
+            android:importantForAutofill="no" />
+        <TextView
+            android:id="@+id/get_key"
+            style="@style/Hint"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="Tap here to get a free Groq key (console.groq.com/keys)"
+            android:textColor="@color/accent" />
+
+        <TextView style="@style/Section" android:text="TRY IT" />
+        <EditText
+            android:id="@+id/try_it"
+            style="@style/Field"
+            android:gravity="top"
+            android:hint="Tap here, switch to the Murmur keyboard, and talk"
+            android:inputType="textMultiLine|textCapSentences"
+            android:minLines="3" />
+
+        <TextView style="@style/Section" android:text="AI CLEANUP" />
+        <Switch
+            android:id="@+id/cleanup"
+            style="@style/Label"
+            android:text="Polish my speech (remove ums, fix punctuation, apply self-corrections)" />
+
+        <TextView style="@style/Label" android:text="Your style instructions (optional)" />
+        <EditText
+            android:id="@+id/style"
+            style="@style/Field"
+            android:gravity="top"
+            android:hint="e.g. Keep it casual. No exclamation marks."
+            android:inputType="textMultiLine|textCapSentences"
+            android:minLines="2" />
+
+        <TextView style="@style/Label" android:text="Names and words to get right (optional)" />
+        <EditText
+            android:id="@+id/vocab"
+            style="@style/Field"
+            android:gravity="top"
+            android:hint="Comma-separated: product names, people, jargon"
+            android:inputType="textMultiLine"
+            android:minLines="2" />
+
+        <TextView style="@style/Label" android:text="Language code (blank = auto-detect)" />
+        <EditText
+            android:id="@+id/language"
+            style="@style/Field"
+            android:hint="en"
+            android:inputType="text"
+            android:maxLength="5" />
+
+        <TextView style="@style/Section" android:text="BEHAVIOR" />
+        <Switch
+            android:id="@+id/auto_start"
+            style="@style/Label"
+            android:text="Start listening as soon as the keyboard opens" />
+        <Switch
+            android:id="@+id/auto_return"
+            style="@style/Label"
+            android:text="Switch back to my regular keyboard after inserting" />
+
+        <TextView style="@style/Section" android:text="ADVANCED" />
+        <TextView style="@style/Hint" android:text="Works with any OpenAI-compatible API. Defaults are set for Groq." />
+        <TextView style="@style/Label" android:text="API base URL" />
+        <EditText android:id="@+id/base_url" style="@style/Field" android:inputType="textUri" />
+        <TextView style="@style/Label" android:text="Speech-to-text model" />
+        <EditText android:id="@+id/stt_model" style="@style/Field" android:inputType="text" />
+        <TextView style="@style/Label" android:text="Cleanup model" />
+        <EditText android:id="@+id/llm_model" style="@style/Field" android:inputType="text" />
+
+        <TextView
+            android:id="@+id/save"
+            style="@style/Step"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="24dp"
+            android:gravity="center"
+            android:text="Save"
+            android:textStyle="bold" />
+    </LinearLayout>
+</ScrollView>

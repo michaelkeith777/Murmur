@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/bg"
+    android:orientation="vertical"
+    android:paddingStart="6dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="@color/dim"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:gravity="center"
+            android:background="@drawable/bg_key"
+            android:text="Cancel"
+            android:textColor="@color/text"
+            android:textSize="13sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="116dp">
+
+        <ImageView
+            android:id="@+id/mic"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_mic_idle"
+            android:padding="24dp"
+            android:src="@drawable/ic_mic"
+            android:contentDescription="Start or stop dictation" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:orientation="horizontal">
+
+        <TextView android:id="@+id/k_switch" style="@style/Key" android:text="⌨" android:contentDescription="Switch keyboard" />
+        <TextView android:id="@+id/k_undo" style="@style/Key" android:text="↶" android:contentDescription="Undo last dictation" />
+        <TextView android:id="@+id/k_comma" style="@style/Key" android:text="," />
+        <TextView android:id="@+id/k_space" style="@style/Key" android:layout_weight="2.4" android:text="space" android:textSize="14sp" />
+        <TextView android:id="@+id/k_period" style="@style/Key" android:text="." />
+        <TextView android:id="@+id/k_del" style="@style/Key" android:text="⌫" android:contentDescription="Backspace" />
+        <TextView android:id="@+id/k_enter" style="@style/Key" android:text="⏎" android:contentDescription="Enter" />
+    </LinearLayout>
+</LinearLayout>
