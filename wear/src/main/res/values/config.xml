@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="fill_screen">true</bool>
+    <!-- Keys the shared keyboard code looks for but the watch layout leaves out. -->
+    <item name="k_space" type="id" />
+    <item name="k_comma" type="id" />
+    <item name="k_period" type="id" />
+    <item name="k_switch" type="id" />
+</resources>

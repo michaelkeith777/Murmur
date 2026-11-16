@@ -19,16 +19,19 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Build debug APK
+      - name: Build phone and watch APKs
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
           cp app/build/outputs/apk/debug/app-debug.apk murmur.apk
+          cp wear/build/outputs/apk/debug/wear-debug.apk murmur-watch.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: murmur-apk
-          path: murmur.apk
+          name: murmur-apks
+          path: |
+            murmur.apk
+            murmur-watch.apk
 
       - name: Publish to Releases (direct download link for your phone)
         continue-on-error: true
@@ -36,4 +39,6 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: Murmur build ${{ github.run_number }}
-          files: murmur.apk
+          files: |
+            murmur.apk
+            murmur-watch.apk

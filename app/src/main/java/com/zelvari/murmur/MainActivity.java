@@ -17,7 +17,7 @@ import android.widget.Toast;
 
 /** Setup checklist and settings. */
 public class MainActivity extends Activity {
-    private TextView stepMic, stepEnable, stepPick;
+    private TextView stepMic, stepEnable, stepPick, stepOneTap;
     private EditText apiKey, style, vocab, language, baseUrl, sttModel, llmModel;
     private Switch cleanup, autoStart, autoReturn;
 
@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
         stepMic = findViewById(R.id.step_mic);
         stepEnable = findViewById(R.id.step_enable);
         stepPick = findViewById(R.id.step_pick);
+        stepOneTap = findViewById(R.id.step_one_tap);
         apiKey = findViewById(R.id.api_key);
         style = findViewById(R.id.style);
         vocab = findViewById(R.id.vocab);
@@ -51,6 +52,8 @@ public class MainActivity extends Activity {
             InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) imm.showInputMethodPicker();
         });
+        stepOneTap.setOnClickListener(v ->
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
         findViewById(R.id.get_key).setOnClickListener(v -> {
             try {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys")));
@@ -151,6 +154,7 @@ public class MainActivity extends Activity {
         step(stepMic, micGranted(), "1.  Allow the microphone");
         step(stepEnable, keyboardEnabled(), "2.  Turn on the Murmur keyboard");
         step(stepPick, keyboardSelected(), "3.  Switch to Murmur (or use your keyboard's switch key)");
+        step(stepOneTap, MurmurAccessService.isEnabled(this), "Optional:  turn on the one-tap dictation button");
     }
 
     private void step(TextView view, boolean done, String label) {

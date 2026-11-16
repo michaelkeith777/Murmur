@@ -15,6 +15,11 @@ final class Prefs {
     static final String LANGUAGE = "language";
     static final String AUTO_START = "auto_start";
     static final String AUTO_RETURN = "auto_return";
+    /** Time (ms) the one-tap trigger last asked the keyboard to listen as soon as it opens. */
+    static final String ONE_SHOT_AT = "one_shot_at";
+    /** Keyboard that was active before the one-tap trigger switched to Murmur. */
+    static final String PREVIOUS_IME = "previous_ime";
+    static final long ONE_SHOT_WINDOW_MS = 8000;
 
     static final String DEF_BASE_URL = "https://api.groq.com/openai/v1";
     static final String DEF_STT_MODEL = "whisper-large-v3-turbo";

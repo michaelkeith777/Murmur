@@ -28,6 +28,12 @@
         <TextView android:id="@+id/step_enable" style="@style/Step" />
         <TextView android:id="@+id/step_pick" style="@style/Step" />
 
+        <TextView android:id="@+id/step_one_tap" style="@style/Step" />
+        <TextView
+            style="@style/Hint"
+            android:layout_marginTop="6dp"
+            android:text="@string/one_tap_hint" />
+
         <TextView style="@style/Label" android:text="API key" />
         <EditText
             android:id="@+id/api_key"

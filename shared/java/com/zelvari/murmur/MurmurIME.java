@@ -48,6 +48,10 @@ public class MurmurIME extends InputMethodService {
     /** Bumped whenever in-flight work should be ignored (cancel, keyboard closed). */
     private int generation;
     private int lastInsertedLength;
+    /** Watch layout: the keyboard fills the whole screen. */
+    private boolean fillScreen;
+    /** Opened by the one-tap trigger: listen right away, then hand back to the regular keyboard. */
+    private boolean oneShot;
 
     private final Runnable meter = new Runnable() {
         @Override
@@ -82,26 +86,39 @@ public class MurmurIME extends InputMethodService {
         cancel = root.findViewById(R.id.cancel);
         mic = root.findViewById(R.id.mic);
 
+        fillScreen = getResources().getBoolean(R.bool.fill_screen);
+        if (fillScreen) {
+            View panel = root.findViewById(R.id.panel);
+            if (panel != null) {
+                panel.getLayoutParams().height = getResources().getDisplayMetrics().heightPixels;
+            }
+        }
+
         mic.setOnClickListener(v -> onMicTapped());
         cancel.setOnClickListener(v -> cancelEverything("Cancelled"));
 
-        root.findViewById(R.id.k_space).setOnClickListener(v -> type(" "));
-        root.findViewById(R.id.k_comma).setOnClickListener(v -> type(","));
-        root.findViewById(R.id.k_period).setOnClickListener(v -> type("."));
-        root.findViewById(R.id.k_enter).setOnClickListener(v -> {
+        // The watch layout leaves some of these keys out, so each one is optional.
+        onClick(root, R.id.k_space, v -> type(" "));
+        onClick(root, R.id.k_comma, v -> type(","));
+        onClick(root, R.id.k_period, v -> type("."));
+        onClick(root, R.id.k_enter, v -> {
             if (!sendDefaultEditorAction(true)) sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER);
+            if (fillScreen) requestHideSelf(0);
         });
-        root.findViewById(R.id.k_undo).setOnClickListener(v -> undoLast());
+        onClick(root, R.id.k_undo, v -> undoLast());
 
         View switcher = root.findViewById(R.id.k_switch);
-        switcher.setOnClickListener(v -> switchToPreviousKeyboard());
-        switcher.setOnLongClickListener(v -> {
-            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showInputMethodPicker();
-            return true;
-        });
+        if (switcher != null) {
+            switcher.setOnClickListener(v -> switchToPreviousKeyboard());
+            switcher.setOnLongClickListener(v -> {
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.showInputMethodPicker();
+                return true;
+            });
+        }
 
-        root.findViewById(R.id.k_del).setOnTouchListener((v, e) -> {
+        View del = root.findViewById(R.id.k_del);
+        if (del != null) del.setOnTouchListener((v, e) -> {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
                     v.setPressed(true);
@@ -127,8 +144,23 @@ public class MurmurIME extends InputMethodService {
         super.onStartInputView(info, restarting);
         if (!restarting && !recording && !busy) {
             render(IDLE_HINT);
-            if (Prefs.flag(this, Prefs.AUTO_START, false)) startRecording();
+            oneShot = takeOneShot();
+            if (oneShot || Prefs.flag(this, Prefs.AUTO_START, false)) startRecording();
         }
+    }
+
+    /** True once if the one-tap trigger fired in the last few seconds. */
+    private boolean takeOneShot() {
+        long at = Prefs.sp(this).getLong(Prefs.ONE_SHOT_AT, 0);
+        if (at == 0) return false;
+        Prefs.sp(this).edit().remove(Prefs.ONE_SHOT_AT).apply();
+        long age = System.currentTimeMillis() - at;
+        return age >= 0 && age < Prefs.ONE_SHOT_WINDOW_MS;
+    }
+
+    private static void onClick(View root, int id, View.OnClickListener listener) {
+        View v = root.findViewById(id);
+        if (v != null) v.setOnClickListener(listener);
     }
 
     @Override
@@ -258,8 +290,10 @@ public class MurmurIME extends InputMethodService {
                 if (!inserted) {
                     render("No text field to type into");
                 } else {
-                    render(fNote != null ? fNote : "Done · ↶ undoes it");
-                    if (Prefs.flag(this, Prefs.AUTO_RETURN, false)) switchToPreviousKeyboard();
+                    render(fNote != null ? fNote : fillScreen ? fText : "Done · ↶ undoes it");
+                    boolean handBack = oneShot || Prefs.flag(this, Prefs.AUTO_RETURN, false);
+                    oneShot = false;
+                    if (handBack && !fillScreen) switchToPreviousKeyboard();
                 }
             });
         });
@@ -268,6 +302,7 @@ public class MurmurIME extends InputMethodService {
     private void cancelEverything(String message) {
         generation++;
         busy = false;
+        oneShot = false;
         if (recording) discardRecording();
         render(message);
     }
