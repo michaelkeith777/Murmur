@@ -32,13 +32,38 @@ final class Reminders {
         scheduleAll(c, json);
     }
 
+    private static final String ACKS = "acks";
+
+    /** Remember that the user stopped an alarm from the notification, so the app won't ring it again. */
+    static synchronized void addAck(Context c, String id, long due) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        try {
+            JSONArray a = new JSONArray(p.getString(ACKS, "[]"));
+            a.put(new JSONObject().put("id", id).put("due", due));
+            p.edit().putString(ACKS, a.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    static synchronized String takeAcks(Context c) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String v = p.getString(ACKS, "[]");
+        p.edit().putString(ACKS, "[]").apply();
+        return v;
+    }
+
     private static PendingIntent pending(Context c, String id, String title, String body) {
+        return pending(c, id, title, body, "remind", 0);
+    }
+
+    private static PendingIntent pending(Context c, String id, String title, String body, String kind, long due) {
         Intent i = new Intent(c, ReminderReceiver.class);
         i.setAction(ReminderReceiver.ACTION_FIRE);
         i.setData(Uri.parse("shiftdeck://reminder/" + Uri.encode(id)));
         if (title != null) i.putExtra("title", title);
         if (body != null) i.putExtra("body", body);
         i.putExtra("id", id);
+        i.putExtra("kind", kind);
+        i.putExtra("due", due);
         return PendingIntent.getBroadcast(c, id.hashCode(), i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
@@ -67,7 +92,8 @@ final class Reminders {
                 long t = o.optLong("t");
                 String id = o.optString("id");
                 if (t <= now || id.isEmpty()) continue;
-                PendingIntent pi = pending(c, id, o.optString("title", "ShiftDeck"), o.optString("body", ""));
+                PendingIntent pi = pending(c, id, o.optString("title", "ShiftDeck"), o.optString("body", ""),
+                        o.optString("kind", "remind"), o.optLong("due", t));
                 try {
                     if (exact) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);
                     else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi);

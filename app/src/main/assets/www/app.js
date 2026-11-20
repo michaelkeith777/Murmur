@@ -37,6 +37,9 @@ const P = {
   sound:'M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12',
   vib:'M8 3h8v18H8zM4 8v8M20 8v8M1 10v4M23 10v4',
   broom:'M14 3l-4 9M6 12h8l2 9H4z',
+  mic:'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3M8 21h8',
+  keyb:'M3 7h18v11H3zM7 11h.01M11 11h.01M15 11h.01M8 15h8',
+  snooze:'M12 5a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM10 10h4l-4 5h4M5 3L2 6M19 3l3 3',
   phonev:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
   phoneh:'M2 8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zM18 11v2'
 };
@@ -56,8 +59,9 @@ const TCATS = {
   ship:     { n:'Shipping',  c:'#6B2FBF', ic:'box' },
   customer: { n:'Customer',  c:'#2F6FED', ic:'user' },
   counter:  { n:'Counter',   c:'#0FA3A3', ic:'store' },
-  opening:  { n:'Opening',   c:'#E09400', ic:'sunrise' },
-  closing:  { n:'Closing',   c:'#5B3E99', ic:'moon' },
+  urgent:   { n:'Urgent',    c:'#E5374A', ic:'flag' },
+  opening:  { n:'Morning',   c:'#E09400', ic:'sunrise' },
+  closing:  { n:'Afternoon', c:'#5B3E99', ic:'sun' },
   inventory:{ n:'Inventory', c:'#18A957', ic:'clip' },
   other:    { n:'Other',     c:'#7A7290', ic:'dot' }
 };
@@ -68,19 +72,19 @@ const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DOWL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MON = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const TPL_META = {
-  opening: { n:'Opening Checklist', ic:'sunrise', g:'linear-gradient(135deg,#FFB443,#FF6200)', cat:'opening' },
-  mid:     { n:'Shift Change',      ic:'repeat',  g:'linear-gradient(135deg,#3A80F5,#2456C9)', cat:'counter' },
-  closing: { n:'Closing Checklist', ic:'moon',    g:'linear-gradient(135deg,#7B3FD0,#3A0E73)', cat:'closing' }
+  opening: { n:'Morning things to tackle', sub:'Start the day strong',   ic:'sunrise', g:'linear-gradient(135deg,#FFB443,#FF6200)', cat:'opening', pri:'normal' },
+  mid:     { n:'Urgent items to address',  sub:'Handle these first',     ic:'flag',    g:'linear-gradient(135deg,#FF5A6B,#C81E36)', cat:'urgent',  pri:'high' },
+  closing: { n:'Afternoon tasks to tackle', sub:'Finish the day clean', ic:'sun',     g:'linear-gradient(135deg,#7B3FD0,#3A0E73)', cat:'closing', pri:'normal' }
 };
 
 /* ================= state ================= */
 const KEY = 'shiftdeck.v1';
 const DEF = {
   events: [], tasks: [],
-  settings: { name:'', store:'', workplace:'FedEx Office', dark:false, haptics:true, sound:true, defRemind:15, welcomed:false },
+  settings: { name:'', store:'', workplace:'FedEx Office', dark:false, haptics:true, sound:true, defRemind:15, welcomed:false, talkFirst:true, lead:15, alarm:true },
   templates: {
     opening: ['Power on and warm up production printers','Check online and overnight print orders','Count the cash drawer','Stock paper, toner and packing supplies','Turn on self-serve copiers and computers','Review pickups due today'],
-    mid:     ['Hand off open print jobs','Update order notes for next shift','Tidy counter and self-serve area','Check the pickup shelf'],
+    mid:     ['Rush print orders due today','Customer callbacks waiting','Same-day shipments before the pickup truck','Equipment problems to report'],
     closing: ['Stage outgoing packages for pickup','Clean counter and self-serve stations','Restock paper and shipping supplies','Close out the register','Check holds and pickup shelf','Power down equipment']
   }
 };
@@ -91,6 +95,8 @@ S.events = Array.isArray(S.events) ? S.events : [];
 S.tasks = Array.isArray(S.tasks) ? S.tasks : [];
 S.settings = Object.assign({}, DEF.settings, S.settings || {});
 S.templates = Object.assign({}, DEF.templates, S.templates || {});
+// v1.2: the old "Shift Change" list becomes "Urgent items to address" (only if it was never edited)
+if (JSON.stringify(S.templates.mid) === JSON.stringify(['Hand off open print jobs','Update order notes for next shift','Tidy counter and self-serve area','Check the pickup shelf'])) S.templates.mid = DEF.templates.mid.slice();
 
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} syncReminders(); };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -168,7 +174,7 @@ const sound = kind => {
 function reminderList() {
   const out = [], now = Date.now();
   S.events.forEach(e => {
-    if (e.remind == null || e.remind < 0) return;
+    if (e.done || e.remind == null || e.remind < 0) return;
     const base = e.allDay ? atTime(e.date, '08:00') : evStart(e);
     const t = base.getTime() - e.remind * 60000;
     if (t > now) out.push({ id:'e' + e.id, t, title:e.title, body:`${ETYPES[e.type] ? ETYPES[e.type].n : 'Event'} · ${niceDate(e.date)}${e.allDay ? '' : ' at ' + fmtTime(e.start)}` });
@@ -179,8 +185,22 @@ function reminderList() {
     const t = base.getTime() - k.remind * 60000;
     if (t > now) out.push({ id:'t' + k.id, t, title:'To-do: ' + k.title, body:`${(TCATS[k.cat] || TCATS.other).n}${k.order ? ' · #' + k.order : ''} · due ${niceDate(k.due)}${k.time ? ' ' + fmtTime(k.time) : ''}` });
   });
+  const lead = (S.settings.lead || 0) * 60000;
+  dueItems().forEach(d => {
+    if (d.at <= now || d.ack === d.at) return;
+    if (lead && d.at - lead > now) out.push({ id:'s' + d.key, kind:'soon', t:d.at - lead, due:d.at, title:d.title, body:'Due at ' + fmtClock(d.at) + (d.sub ? ' · ' + d.sub : '') });
+    if (S.settings.alarm !== false) out.push({ id:'d' + d.key, kind:'due', t:d.at, due:d.at, title:d.title, body:'Due now' + (d.sub ? ' · ' + d.sub : '') });
+  });
   return out.sort((a, b) => a.t - b.t).slice(0, 300);
 }
+/** Things with a real clock time: open to-dos with a due time, and events that start at a time. */
+function dueItems() {
+  const out = [];
+  S.tasks.forEach(k => { if (!k.done && k.due && k.time) out.push({ key:'t' + k.id, kind:'t', id:k.id, title:k.title, at:k.snoozeTo || atTime(k.due, k.time).getTime(), ack:k.ack, sub:(TCATS[k.cat] || TCATS.other).n + (k.order ? ' · #' + k.order : '') }); });
+  S.events.forEach(e => { if (!e.done && !e.allDay && e.start) out.push({ key:'e' + e.id, kind:'e', id:e.id, title:e.title, at:e.snoozeTo || evStart(e).getTime(), ack:e.ack, sub:(ETYPES[e.type] || ETYPES.other).n }); });
+  return out.sort((a, b) => a.at - b.at);
+}
+const fmtClock = ms => { const d = new Date(ms); return fmtTime(pad(d.getHours()) + ':' + pad(d.getMinutes())); };
 function syncReminders() {
   if (!N || !N.syncReminders) return;
   try {
@@ -306,9 +326,10 @@ function eventRow(e, i = 0, showDate = false) {
   const ty = ETYPES[e.type] || ETYPES.other;
   const time = e.allDay ? `All day<small>${showDate ? niceDate(e.date) : ''}</small>` : `${shortTime(e.start)}<small>${e.end ? 'to ' + shortTime(e.end) : (showDate ? niceDate(e.date) : '')}</small>`;
   const hrs = e.type === 'shift' && !e.allDay && e.end ? ` · ${fmtHrs(evHours(e))} hrs` : '';
-  return `<div class="ev st rip" style="--c:${ty.c};--i:${i}" data-act="editEvent" data-id="${e.id}">
+  return `<div class="ev st rip ${e.done ? 'evdone' : ''}" style="--c:${ty.c};--i:${i}" data-act="evTap" data-id="${e.id}">
     <div class="et">${time}</div>
-    <div class="em"><div class="en">${esc(e.title)}</div><span class="ety">${ic(ty.ic, 14, 2.6)}${ty.n}${hrs}${e.remind >= 0 ? ' · ' + ic('bell', 13, 2.6) : ''}</span></div>
+    <div class="em"><div class="en"><span>${esc(e.title)}</span></div><span class="ety">${ic(ty.ic, 14, 2.6)}${ty.n}${hrs}${e.remind >= 0 && !e.done ? ' · ' + ic('bell', 13, 2.6) : ''}</span></div>
+    <span class="evchk">${ic('check', 22, 3.2)}</span>
   </div>`;
 }
 const emptyBox = (icon, msg, i = 0) => `<div class="empty st" style="--i:${i}"><div class="eico">${ic(icon, 34, 2.2)}</div>${msg}</div>`;
@@ -335,12 +356,12 @@ function vToday() {
     <button class="q3 st rip" style="--i:${i++}" data-act="newOrder"><span class="qi">${ic('printer', 26)}</span>Print Order</button>
     <button class="q4 st rip" style="--i:${i++}" data-act="checklists"><span class="qi">${ic('clip', 26)}</span>Checklists</button></div>`;
   // next up
-  const upcoming = S.events.filter(e => evEnd(e) > now).sort(sortEv);
+  const upcoming = S.events.filter(e => !e.done && evEnd(e) > now).sort(sortEv);
   const nx = upcoming.find(e => evStart(e) - now < 7 * 864e5);
   if (nx) {
     const ty = ETYPES[nx.type] || ETYPES.other, live = evStart(nx) <= now;
     html += `<div class="sec st" style="--i:${i++}">Next up</div>
-    <div class="card next st rip" style="--i:${i++}" data-act="editEvent" data-id="${nx.id}"><div class="bar" style="background:${ty.c}"></div>
+    <div class="card next st rip" style="--i:${i++}" data-act="evTap" data-id="${nx.id}"><div class="bar" style="background:${ty.c}"></div>
       <div class="nico ${live ? 'live' : ''}" style="background:${ty.c}">${ic(ty.ic, 30)}</div>
       <div style="min-width:0"><div class="nt">${esc(nx.title)}</div><div class="nm">${niceDate(nx.date)}${nx.allDay ? ' · All day' : ' · ' + fmtTime(nx.start) + (nx.end ? ' – ' + fmtTime(nx.end) : '')}</div></div>
       <div class="cd">${live ? 'NOW' : relTime(evStart(nx) - now)}</div></div>`;
@@ -379,7 +400,7 @@ function vCalendar() {
     const d = new Date(start); d.setDate(start.getDate() + k);
     const s = ymd(d), evs = eventsOn(s), tk = tasksDue(s).filter(x => !x.done);
     const dots = [...new Set(evs.map(e => (ETYPES[e.type] || ETYPES.other).c))].slice(0, 3).map(c => `<i style="--c:${c}"></i>`).join('') + (tk.length ? '<i style="--c:#FF8A3D;border-radius:2px"></i>' : '');
-    const pills = evs.slice(0, 3).map(e => { const ty = ETYPES[e.type] || ETYPES.other; return `<span class="pill" style="--c:${ty.c}" data-act="calEvent" data-id="${e.id}" data-d="${s}"><b>${e.allDay ? '' : tinyTime(e.start) + ' '}</b>${esc(e.title)}</span>`; }).join('')
+    const pills = evs.slice(0, 3).map(e => { const ty = ETYPES[e.type] || ETYPES.other; return `<span class="pill ${e.done ? 'done' : ''}" style="--c:${ty.c}" data-act="calEvent" data-id="${e.id}" data-d="${s}"><b>${e.allDay ? '' : tinyTime(e.start) + ' '}</b>${esc(e.title)}</span>`; }).join('')
       + (evs.length > 3 ? `<span class="pill more">+${evs.length - 3} more</span>` : '')
       + (tk.length ? `<span class="pill todo">${ic('check', 11, 3.5)}${tk.length}<span class="tw"> to-do${tk.length > 1 ? 's' : ''}</span></span>` : '');
     cells += `<button class="day ${d.getMonth() !== m ? 'out' : ''} ${s === t ? 'today' : ''} ${s === selDay ? 'sel' : ''}" data-act="pickDay" data-d="${s}"><span class="dn">${d.getDate()}</span><span class="dots">${dots}</span><span class="pills">${pills}</span></button>`;
@@ -435,7 +456,7 @@ function vMore() {
   const initials = (st.name || 'Me').split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase();
   const row = (act, icon, title, sub, right = '', i = 0) => `<button class="setrow" data-act="${act}"><span class="si">${ic(icon, 24)}</span><span class="sx">${title}${sub ? `<small>${sub}</small>` : ''}</span>${right}</button>`;
   let i = 1;
-  const om = ORIENT.find(o => o[0] === st.orient) || ORIENT[0];
+  const om = ORIENT.find(o => o[0] === st.orient) || ORIENT[0], vs = voiceStatus();
   return `<div class="narrow"><div class="page-h st"><h1>More</h1></div>
   <div class="card prof st rip" style="--i:${i++}" data-act="editProfile"><div class="avatar">${esc(initials)}</div><div style="flex:1;min-width:0"><div class="pn">${esc(st.name || 'Set your name')}</div><div class="ps">${esc([st.workplace, st.store ? 'Store #' + st.store : ''].filter(Boolean).join(' · ') || 'Add your store')}</div></div>${ic('edit', 24)}</div>
   <div class="sec st" style="--i:${i++}">Settings</div>
@@ -448,7 +469,18 @@ function vMore() {
   </div>
   <div class="sec st" style="--i:${i++}">Checklists</div>
   <div class="card st" style="--i:${i++};padding:4px 16px">
-    ${Object.keys(TPL_META).map(k => row('editTpl', TPL_META[k].ic, TPL_META[k].n, `${S.templates[k].length} items · tap to edit`, ic('chevR', 22)).replace('data-act="editTpl"', `data-act="editTpl" data-k="${k}"`)).join('')}
+    ${Object.keys(TPL_META).map(k => row('openList', TPL_META[k].ic, TPL_META[k].n, `${S.templates[k].length} items · tap to add or change`, ic('chevR', 22)).replace('data-act="openList"', `data-act="openList" data-k="${k}"`)).join('')}
+  </div>
+  <div class="sec st" style="--i:${i++}">Murmur voice</div>
+  <div class="card st" style="--i:${i++};padding:4px 16px">
+    ${row('setTalk', 'mic', 'Talk first', 'Tapping an empty box opens the microphone', `<span class="tgl ${st.talkFirst ? 'on' : ''}"></span>`)}
+    ${row('setVoiceKey', 'spark', 'AI voice (Groq key)', vs.hasKey ? 'On · Murmur Whisper + AI clean-up' : 'Off · using phone speech recognition', ic('chevR', 22))}
+    ${vs.hasKey ? row('setClean', 'edit', 'AI clean-up', 'Remove ums, fix punctuation and self-corrections', `<span class="tgl ${vs.cleanup ? 'on' : ''}"></span>`) : ''}
+  </div>
+  <div class="sec st" style="--i:${i++}">Timers &amp; alarms</div>
+  <div class="card st" style="--i:${i++};padding:4px 16px">
+    ${row('setLead', 'clock', 'Countdown timer', st.lead ? `Pops up ${st.lead >= 60 ? '1 hour' : st.lead + ' min'} before something is due` : 'Off', ic('chevR', 22))}
+    ${row('setAlarm', 'bell', 'Alarm when due', 'Rings until you tap Done, Snooze or Stop', `<span class="tgl ${st.alarm !== false ? 'on' : ''}"></span>`)}
   </div>
   <div class="sec st" style="--i:${i++}">Your data</div>
   <div class="card st" style="--i:${i++};padding:4px 16px">
@@ -456,7 +488,7 @@ function vMore() {
     ${row('importData', 'down', 'Restore', 'Paste a backup to bring everything back')}
     ${row('clearDone', 'broom', 'Clear finished to-dos', `${S.tasks.filter(k => k.done).length} finished`)}
   </div>
-  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.1 · Everything is saved on this device only.</div></div>`;
+  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.2 · Everything is saved on this device only.</div></div>`;
 }
 
 /* ================= sheets ================= */
@@ -467,9 +499,10 @@ function openSheet(html, focusId) {
   sheet.scrollTop = 0;
   wrap.classList.add('open');
   buzz(10);
-  if (focusId) setTimeout(() => { const el = document.getElementById(focusId); if (el && !el.value) el.focus(); }, 450);
+  decorate(sheet);
+  if (focusId && !S.settings.talkFirst) setTimeout(() => { const el = document.getElementById(focusId); if (el && !el.value) el.focus(); }, 450);
 }
-function closeSheet() { wrap.classList.remove('open'); document.activeElement && document.activeElement.blur && document.activeElement.blur(); }
+function closeSheet() { if (window.Murmur) Murmur.close(); wrap.classList.remove('open'); document.activeElement && document.activeElement.blur && document.activeElement.blur(); }
 const isOpen = () => wrap.classList.contains('open');
 const chipRow = (group, items, cur) => `<div class="chips" data-group="${group}">${items.map(([v, n, c, icn]) => `<button class="chip ${String(v) === String(cur) ? 'on' : ''}" data-act="chip" data-g="${group}" data-v="${v}">${c ? `<span class="dt" style="--c:${c}"></span>` : ''}${icn ? ic(icn, 18, 2.5) : ''}${n}</button>`).join('')}</div>`;
 const val = id => (document.getElementById(id) || {}).value || '';
@@ -516,9 +549,63 @@ function taskSheet(k, preset = {}) {
     ${isNew ? '<button class="btn ghost" data-act="closeSheet">Cancel</button>' : `<button class="btn danger" data-act="delTask">${ic('trash', 22)}Delete</button>`}</div>`, 'f_title');
 }
 function checklistSheet() {
-  openSheet(`<h2 class="sh-t">Checklists</h2><p class="sh-s">One tap adds the whole list to today's to-dos.</p><div style="height:10px"></div>
-    ${Object.entries(TPL_META).map(([k, m]) => `<button class="tplbtn" style="background:${m.g}" data-act="runTpl" data-k="${k}"><span class="qi">${ic(m.ic, 28)}</span><span>${m.n}<small>${S.templates[k].length} items</small></span></button>`).join('')}
-    <button class="btn ghost" data-act="editTplFromSheet">${ic('edit', 22)}Edit checklists</button>`);
+  openSheet(`<h2 class="sh-t">Your lists</h2><p class="sh-s">Tap a list to add items or put it on today's to-dos.</p><div style="height:10px"></div>
+    ${Object.entries(TPL_META).map(([k, m]) => `<button class="tplbtn" style="background:${m.g}" data-act="openList" data-k="${k}"><span class="qi">${ic(m.ic, 28)}</span><span>${m.n}<small>${S.templates[k].length} item${S.templates[k].length === 1 ? '' : 's'} · ${m.sub}</small></span><span style="margin-left:auto">${ic('chevR', 26, 2.8)}</span></button>`).join('')}`);
+}
+function listItemsHtml(k) {
+  const items = S.templates[k];
+  if (!items.length) return `<div class="empty" style="padding:18px">${ic('list', 30)}<br>No items yet. Add your first one above.</div>`;
+  return items.map((x, ix) => `<div class="li" style="--i:${ix}" data-ix="${ix}">
+    <span class="lnum">${ix + 1}</span>
+    <span class="ltx" data-act="liEdit" data-ix="${ix}">${esc(x)}</span>
+    <button class="lbtn add" data-act="liToday" data-ix="${ix}" aria-label="Add to today">${ic('plus', 20, 3)}<b>Today</b></button>
+    <button class="lbtn del" data-act="liDel" data-ix="${ix}" aria-label="Remove">${ic('x', 20, 3)}</button></div>`).join('');
+}
+function listSheet(k) {
+  F = { kind:'list', k };
+  const m = TPL_META[k];
+  openSheet(`<div class="lhead" style="background:${m.g}"><span class="qi">${ic(m.ic, 30)}</span><div><h2>${m.n}</h2><small>${m.sub}</small></div></div>
+    <label class="lb">Add an item</label>
+    <div class="addrow"><input id="f_item" class="in" maxlength="120" placeholder="Type or tap the mic" enterkeyhint="done"><button class="addbtn" data-act="liAdd" aria-label="Add">${ic('plus', 30, 3)}</button></div>
+    <label class="lb">On this list · tap an item to change it</label>
+    <div id="liBox">${listItemsHtml(k)}</div>
+    <div class="sh-actions"><button class="btn primary" data-act="runTpl" data-k="${k}" id="liRun">${ic('check', 26, 3)}Put all ${S.templates[k].length} on today's to-dos</button>
+    <button class="btn ghost" data-act="closeSheet">Done</button>
+    <button class="link-sm" data-act="liReset">Reset this list to the starter items</button></div>`, 'f_item');
+}
+function refreshList(anim) {
+  const box = $('#liBox'); if (!box) return;
+  box.innerHTML = listItemsHtml(F.k);
+  if (anim != null) { const el = box.querySelector(`.li[data-ix="${anim}"]`); el && el.classList.add('pop'); }
+  const run = $('#liRun'); if (run) run.innerHTML = `${ic('check', 26, 3)}Put all ${S.templates[F.k].length} on today's to-dos`;
+}
+function eventActions(e) {
+  F = { kind:'evact', id:e.id };
+  const ty = ETYPES[e.type] || ETYPES.other;
+  openSheet(`<div class="evhead" style="--c:${ty.c}"><span class="nico" style="background:${ty.c}">${ic(ty.ic, 30)}</span><div style="min-width:0">
+      <h2 class="sh-t" style="margin:0;${e.done ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(e.title)}</h2>
+      <p class="sh-s" style="margin:4px 0 0">${niceDate(e.date)}${e.allDay ? ' · All day' : ' · ' + fmtTime(e.start) + (e.end ? ' – ' + fmtTime(e.end) : '')} · ${ty.n}</p></div></div>
+    ${e.notes ? `<div class="evnotes">${esc(e.notes)}</div>` : ''}
+    <div class="sh-actions">${e.done
+      ? `<button class="btn ghost" data-act="evUndone">${ic('repeat', 24)}Mark as not done</button>`
+      : `<button class="btn donebtn" data-act="evDone">${ic('check', 30, 3.2)}Done!</button>`}
+    <button class="btn purple" data-act="evEdit">${ic('edit', 24)}Edit details</button>
+    <button class="btn ghost" data-act="closeSheet">Close</button></div>`);
+}
+function voiceSheet() {
+  const st = voiceStatus();
+  openSheet(`<h2 class="sh-t">Murmur AI voice</h2>
+    <p class="sh-s">Paste the same free Groq API key you use in your Murmur app to get Murmur's Whisper accuracy and AI clean-up (removes ums, fixes punctuation). Without a key, ShiftDeck uses your phone's built-in speech recognition.</p>
+    <label class="lb">Groq API key</label><input id="f_key" class="in" data-nomic="1" type="password" autocomplete="off" placeholder="${st.hasKey ? '•••••••• saved' : 'gsk_…'}">
+    <div class="sh-actions"><button class="btn primary" data-act="saveKey">${ic('check', 26, 3)}Save key</button>
+    ${st.hasKey ? `<button class="btn danger" data-act="clearKey">${ic('trash', 22)}Remove key</button>` : ''}
+    <button class="btn ghost" data-act="closeSheet">Close</button></div>`);
+}
+function leadSheet() {
+  F = { kind:'lead', lead:S.settings.lead };
+  openSheet(`<h2 class="sh-t">Countdown timer</h2><p class="sh-s">A timer pops up this long before a to-do or event is due. An alarm rings when it's due.</p><div style="height:8px"></div>
+    ${chipRow('lead', [[0, 'Off'], [5, '5 min'], [10, '10 min'], [15, '15 min'], [30, '30 min'], [60, '1 hour']], F.lead)}
+    <div class="sh-actions"><button class="btn primary" data-act="saveLead">Save</button></div>`);
 }
 function profileSheet(first) {
   const st = S.settings;
@@ -564,13 +651,26 @@ function completeTask(id, el) {
   }
   sound('done'); buzz(18);
   setTimeout(() => {
-    k.done = true; k.doneAt = Date.now(); save();
+    k.done = true; k.doneAt = Date.now(); k.ack = k.snoozeTo || (k.due && k.time ? atTime(k.due, k.time).getTime() : null); save();
     const t = today(), left = S.tasks.filter(x => !x.done && x.due && x.due <= t).length;
     const wasToday = k.due && k.due <= t;
     if (node && view !== 'today') { node.style.height = node.offsetHeight + 'px'; void node.offsetHeight; node.classList.add('gone'); setTimeout(render, 330); } else render();
     if (wasToday && left === 0) { setTimeout(bigCelebrate, 250); toast('🎉 Everything due today is done!'); }
     else toast('Nice! To-do finished', () => { k.done = false; k.doneAt = null; save(); render(); });
   }, 480);
+}
+function finishEvent(id) {
+  const e = findE(id); if (!e) return;
+  const row = document.querySelector(`.ev[data-id="${id}"], .next[data-id="${id}"]`);
+  const commit = () => { e.done = true; e.doneAt = Date.now(); e.ack = e.snoozeTo || evStart(e).getTime(); save(); render(); toast('Crossed off! Nice work ✓', () => { e.done = false; e.doneAt = null; save(); render(); }); };
+  sound('win'); buzz(30);
+  if (!row) { confetti(innerWidth / 2, innerHeight * .45, 60, 1.2); commit(); return; }
+  row.classList.add('finishing');
+  row.insertAdjacentHTML('beforeend', '<span class="stamp">DONE!</span>');
+  const r = row.getBoundingClientRect();
+  confetti(r.left + r.width * .3, r.top + r.height / 2, 40, 1);
+  setTimeout(() => confetti(r.right - 60, r.top + r.height / 2, 40, 1), 180);
+  setTimeout(commit, 1250);
 }
 function deleteTask(id, el) {
   const idx = S.tasks.findIndex(k => k.id === id); if (idx < 0) return;
@@ -584,9 +684,9 @@ function addTemplate(key) {
   const m = TPL_META[key], t = today();
   const existing = new Set(S.tasks.filter(k => !k.done && k.due === t).map(k => k.title));
   const items = S.templates[key].filter(x => x.trim() && !existing.has(x.trim()));
-  items.forEach(x => S.tasks.push({ id:uid(), title:x.trim(), cat:m.cat, pri:'normal', due:t, time:'', done:false, remind:-1, created:Date.now() }));
+  items.forEach(x => S.tasks.push({ id:uid(), title:x.trim(), cat:m.cat, pri:m.pri || 'normal', due:t, time:'', done:false, remind:-1, created:Date.now() }));
   save(); closeSheet();
-  if (items.length) { confetti(innerWidth / 2, innerHeight * .6, 40, 1); sound('done'); toast(`Added ${items.length} to-dos from ${m.n}`); }
+  if (items.length) { confetti(innerWidth / 2, innerHeight * .6, 40, 1); sound('done'); toast(`Added ${items.length} to-dos from “${m.n}”`); }
   else toast('Those are already on today\'s list');
   view = 'today'; render(true);
 }
@@ -604,6 +704,46 @@ const ACT = {
   checklists: checklistSheet,
   editTask: a => { const k = findT(a.dataset.id); k && taskSheet(k); },
   editEvent: a => { const e = findE(a.dataset.id); e && eventSheet(e); },
+  evTap: a => { const e = findE(a.dataset.id); e && eventActions(e); },
+  evEdit: () => { const e = findE(F.id); e && eventSheet(e); },
+  evDone: () => { const id = F.id; closeSheet(); setTimeout(() => finishEvent(id), 260); },
+  evUndone: () => { const e = findE(F.id); if (!e) return; e.done = false; e.doneAt = null; save(); closeSheet(); render(); toast('Back on your schedule'); },
+  openList: a => listSheet(a.dataset.k),
+  liAdd: () => {
+    const inp = $('#f_item'), v = (inp.value || '').trim();
+    if (!v) return shakeEl('f_item');
+    S.templates[F.k].push(v); save(); inp.value = ''; buzz(12); sound('done');
+    refreshList(S.templates[F.k].length - 1);
+    const r = inp.getBoundingClientRect(); confetti(r.right - 30, r.top + 20, 14, .5);
+  },
+  liDel: a => {
+    const ix = +a.dataset.ix, row = a.closest('.li'), k = F.k;
+    const [gone] = S.templates[k].splice(ix, 1); save(); buzz(20); sound('del');
+    row.classList.add('out'); setTimeout(() => refreshList(), 260);
+    toast('Item removed', () => { S.templates[k].splice(ix, 0, gone); save(); if (F.k === k) refreshList(ix); });
+  },
+  liEdit: a => {
+    const ix = +a.dataset.ix, cur = S.templates[F.k][ix];
+    a.outerHTML = `<input class="in liin" id="f_li${ix}" data-ix="${ix}" value="${esc(cur)}" enterkeyhint="done">`;
+    const inp = document.getElementById('f_li' + ix); decorate(inp.parentElement);
+    inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+  },
+  liToday: a => {
+    const m = TPL_META[F.k], x = S.templates[F.k][+a.dataset.ix];
+    S.tasks.push({ id:uid(), title:x, cat:m.cat, pri:m.pri, due:today(), time:'', done:false, remind:-1, created:Date.now() });
+    save(); buzz(14); sound('done'); a.classList.add('ok'); a.innerHTML = ic('check', 20, 3.2) + '<b>Added</b>';
+    const r = a.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top, 16, .5);
+  },
+  liReset: () => { S.templates[F.k] = DEF.templates[F.k].slice(); save(); refreshList(); buzz(); toast('Starter items restored'); },
+  setTalk: () => { S.settings.talkFirst = !S.settings.talkFirst; save(); render(); },
+  setVoiceKey: voiceSheet,
+  saveKey: () => { const k = val('f_key').trim(); if (!k) return shakeEl('f_key'); voiceConfig({ key:k }); closeSheet(); render(); toast('Murmur AI voice is on 🎙️'); },
+  clearKey: () => { voiceConfig({ key:'' }); closeSheet(); render(); toast('Using built-in speech'); },
+  setClean: () => { const st = voiceStatus(); voiceConfig({ cleanup:!st.cleanup }); render(); },
+  setLead: leadSheet,
+  saveLead: () => { S.settings.lead = F.lead; save(); closeSheet(); render(); },
+  setAlarm: () => { S.settings.alarm = !S.settings.alarm; save(); render(); },
+  mic: a => { const el = document.getElementById(a.dataset.for); el && Murmur.open(el); },
   toggle: a => completeTask(a.dataset.id, a.closest('.swipe')),
   call: a => { buzz(); if (N && N.dial) N.dial(a.dataset.p); else location.href = 'tel:' + a.dataset.p; },
   toggleDoneToday: () => { showDoneToday = !showDoneToday; render(); },
@@ -613,7 +753,7 @@ const ACT = {
   goToday: () => { selDay = today(); calMonth = parse(selDay.slice(0, 8) + '01'); render(true); },
   chip: a => {
     const g = a.dataset.g; let v = a.dataset.v;
-    if (g === 'remind' || g === 'repeat') v = +v;
+    if (g === 'remind' || g === 'repeat' || g === 'lead') v = +v;
     F[g] = v; buzz(8);
     a.parentElement.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === a));
     if (g === 'cat') { const o = $('#f_order'); if (o && ORDER_CATS.includes(v)) o.style.display = ''; }
@@ -671,10 +811,6 @@ const ACT = {
   },
   delTask: () => { closeSheet(); setTimeout(() => deleteTask(F.id), 250); },
   runTpl: a => addTemplate(a.dataset.k),
-  editTpl: a => tplSheet(a.dataset.k),
-  editTplFromSheet: () => { closeSheet(); view = 'more'; render(true); },
-  saveTpl: () => { S.templates[F.k] = val('f_tpl').split('\n').map(s => s.trim()).filter(Boolean); save(); closeSheet(); render(); toast('Checklist saved'); },
-  resetTpl: () => { $('#f_tpl').value = DEF.templates[F.k].join('\n'); buzz(); },
   editProfile: () => profileSheet(false),
   saveProfile: () => {
     Object.assign(S.settings, { name:val('f_name').trim(), workplace:val('f_work').trim(), store:val('f_store').trim(), welcomed:true });
@@ -690,7 +826,7 @@ const ACT = {
   calEvent: a => {
     const wide = innerWidth >= 760, wasSel = !!a.closest('.day.sel'), id = a.dataset.id;
     if (!wasSel) ACT.pickDay(a.closest('.day'));
-    if (wide || wasSel) { const ev = findE(id); ev && setTimeout(() => eventSheet(ev), wasSel ? 0 : 180); }
+    if (wide || wasSel) { const ev = findE(id); ev && setTimeout(() => eventActions(ev), wasSel ? 0 : 180); }
   },
   saveDefRemind: () => { S.settings.defRemind = F.remind; save(); closeSheet(); render(); },
   clearDone: () => {
@@ -704,7 +840,7 @@ const ACT = {
     else if (navigator.clipboard) navigator.clipboard.writeText(json).then(() => toast('Backup copied to clipboard'));
   },
   importData: () => openSheet(`<h2 class="sh-t">Restore a backup</h2><p class="sh-s">Paste the backup text you saved. This replaces what's on this phone.</p>
-    <textarea id="f_imp" class="in" style="min-height:200px;font-size:14px" placeholder="Paste backup here"></textarea>
+    <textarea id="f_imp" class="in" data-nomic="1" style="min-height:200px;font-size:14px" placeholder="Paste backup here"></textarea>
     <div class="sh-actions"><button class="btn purple" data-act="doImport">${ic('down', 24)}Restore</button><button class="btn ghost" data-act="closeSheet">Cancel</button></div>`, 'f_imp'),
   doImport: () => {
     try {
@@ -782,10 +918,253 @@ let lastDay = today();
 setInterval(() => { if (isOpen()) return; if (today() !== lastDay) { lastDay = today(); selDay = null; calMonth = null; } if (view === 'today') render(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !isOpen()) render(); });
 
+
+/* ================= Murmur voice typing ================= */
+const TEXTY = 'input.in:not([type]),input.in[type=text],input.in[type=tel],input.in[type=search],textarea.in';
+let micSeq = 0;
+function decorate(root) {
+  (root || document).querySelectorAll(TEXTY).forEach(inp => {
+    if (inp.dataset.nomic || inp.dataset.mic) return;
+    inp.dataset.mic = '1';
+    if (!inp.id) inp.id = 'mic_f' + (++micSeq);
+    const w = document.createElement('div');
+    w.className = 'micwrap' + (inp.tagName === 'TEXTAREA' ? ' ta' : '');
+    inp.parentNode.insertBefore(w, inp); w.appendChild(inp);
+    w.insertAdjacentHTML('beforeend', `<button class="micbtn" type="button" data-act="mic" data-for="${inp.id}" aria-label="Talk">${ic('mic', 24, 2.4)}</button>`);
+  });
+}
+function voiceStatus() {
+  try { if (N && N.voiceStatus) return JSON.parse(N.voiceStatus()); } catch (e) {}
+  return { hasKey:false, cleanup:true, basic:!!(window.SpeechRecognition || window.webkitSpeechRecognition) };
+}
+function voiceConfig(o) { try { N && N.voiceConfig && N.voiceConfig(JSON.stringify(o)); } catch (e) {} }
+const fieldLabel = el => { const w = el.closest('.addrow') || el.closest('.micwrap'), lb = w && w.previousElementSibling; return (lb && lb.classList.contains('lb') ? lb.textContent : el.placeholder || 'text').trim(); };
+
+const Murmur = (() => {
+  let target = null, state = 'idle', webRec = null, partial = '', lvlT = null, openedAt = 0;
+  const box = document.createElement('div');
+  box.id = 'murmur';
+  box.innerHTML = `<div class="mm-back" data-act="mmCancel"></div>
+    <div class="mm-panel">
+      <div class="mm-top"><span class="mm-brand">${ic('mic', 18, 2.6)}Murmur</span><span class="mm-field"></span><button class="mm-x" data-act="mmCancel" aria-label="Cancel">${ic('x', 24, 2.8)}</button></div>
+      <div class="mm-orb-wrap"><div class="mm-ring r1"></div><div class="mm-ring r2"></div><div class="mm-ring r3"></div>
+        <button class="mm-orb" data-act="mmOrb">${ic('mic', 46, 2.4)}</button></div>
+      <div class="mm-bars">${'<i></i>'.repeat(9)}</div>
+      <div class="mm-status">Listening…</div>
+      <div class="mm-text"></div>
+      <div class="mm-btns"><button class="btn ghost" data-act="mmType">${ic('keyb', 24)}Type instead</button><button class="btn primary" data-act="mmDone">${ic('check', 26, 3)}Done</button></div>
+    </div>`;
+  document.body.appendChild(box);
+  const $s = q => box.querySelector(q);
+  const bars = [...box.querySelectorAll('.mm-bars i')];
+  function setState(st, msg) {
+    state = st; box.dataset.state = st;
+    $s('.mm-status').textContent = msg || ({ listening:'Listening… talk now', thinking:'Murmur is writing it up…', done:'Got it!', error:'Hmm, try again' })[st] || '';
+  }
+  function level(v) {
+    v = Math.max(0, Math.min(1, v || 0));
+    box.style.setProperty('--lv', v.toFixed(3));
+    bars.forEach((b, i) => { const k = 0.25 + Math.abs(Math.sin(Date.now() / 140 + i * 0.9)) * 0.75; b.style.transform = `scaleY(${(0.15 + v * k * 1.6).toFixed(3)})`; });
+  }
+  function idleWave() { clearInterval(lvlT); lvlT = setInterval(() => { if (state === 'listening' && !N) level(0.2 + Math.random() * 0.4); }, 120); }
+  function open(el) {
+    if (!el) return;
+    target = el; partial = ''; openedAt = Date.now();
+    $s('.mm-field').textContent = fieldLabel(el);
+    $s('.mm-text').textContent = '';
+    box.classList.add('open'); buzz(20); $('#toast').classList.remove('show');
+    setState('listening');
+    if (el.blur) el.blur();
+    start();
+  }
+  function start() {
+    let mode = 'none';
+    try { if (N && N.voiceStart) mode = N.voiceStart(fieldLabel(target)); } catch (e) {}
+    if (mode === 'ai' || mode === 'basic') { box.dataset.mode = mode; return; }
+    if (mode === 'perm') { setState('listening', 'Allow the microphone to talk…'); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setState('error', 'Voice needs the ShiftDeck app on your phone'); return; }
+    webRec = new SR(); webRec.interimResults = true; webRec.lang = navigator.language || 'en-US';
+    webRec.onresult = ev => { let t = ''; for (const r of ev.results) t += r[0].transcript; partial = t; $s('.mm-text').textContent = t; if (ev.results[ev.results.length - 1].isFinal) cb.onResult(t); };
+    webRec.onerror = ev => cb.onError(ev.error === 'no-speech' ? "Didn't catch that" : 'Mic error: ' + ev.error);
+    try { webRec.start(); idleWave(); } catch (e) { cb.onError('Could not start the mic'); }
+  }
+  function stop() {
+    if (state !== 'listening') return;
+    setState('thinking');
+    try { if (N && N.voiceStop) { N.voiceStop(); return; } } catch (e) {}
+    if (webRec) { try { webRec.stop(); } catch (e) {} if (partial) cb.onResult(partial); }
+  }
+  function close() {
+    if (!box.classList.contains('open')) return;
+    try { N && N.voiceCancel && N.voiceCancel(); } catch (e) {}
+    if (webRec) { try { webRec.abort(); } catch (e) {} webRec = null; }
+    clearInterval(lvlT); box.classList.remove('open'); state = 'idle';
+  }
+  function insert(text) {
+    const el = target; if (!el) return;
+    text = text.trim();
+    if (el.tagName === 'INPUT') text = text.replace(/\s*\n+\s*/g, ' ').replace(/[.]$/, el.maxLength > 0 && el.maxLength <= 120 ? '' : '.');
+    const cur = el.value;
+    el.value = cur ? cur.replace(/\s+$/, '') + (el.tagName === 'TEXTAREA' ? '\n' : ' ') + text : text;
+    el.dispatchEvent(new Event('input', { bubbles:true }));
+    const w = el.closest('.micwrap'); if (w) { w.classList.remove('got'); void w.offsetWidth; w.classList.add('got'); }
+  }
+  const cb = {
+    onLevel: v => level(v),
+    onPartial: t => { partial = t; $s('.mm-text').textContent = t; },
+    onState: st => setState(st),
+    onPermission: ok => { if (!box.classList.contains('open')) return; if (ok) start(); else setState('error', 'Microphone permission is needed to talk'); },
+    onResult: t => {
+      if (!box.classList.contains('open')) return;
+      t = (t || '').trim();
+      if (!t) { cb.onError("Didn't catch that — tap the mic and try again"); return; }
+      setState('done'); $s('.mm-text').textContent = t; sound('done'); buzz(18);
+      insert(t);
+      setTimeout(() => { close(); if (target && target.id === 'f_item') ACT.liAdd(); }, 650);
+    },
+    onError: m => { if (!box.classList.contains('open')) return; setState('error', m || 'Something went wrong'); buzz(40); }
+  };
+  window.murmur = cb;
+  Object.assign(ACT, {
+    mmCancel: () => { if (Date.now() - openedAt > 600) close(); },
+    mmDone: () => state === 'listening' ? stop() : (state === 'error' ? (setState('listening'), start()) : null),
+    mmOrb: () => state === 'listening' ? stop() : (state === 'error' ? (setState('listening'), start()) : null),
+    mmType: () => { const el = target; close(); if (el) setTimeout(() => { el.focus(); }, 80); }
+  });
+  return { open, close, isOpen:() => box.classList.contains('open') };
+})();
+window.Murmur = Murmur;
+
+// "Talk first": tapping an empty text box opens the mic instead of the keyboard.
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest && e.target.closest(TEXTY);
+  if (!el || el.dataset.nomic || !S.settings.talkFirst || el.value || document.activeElement === el) return;
+  e.preventDefault();
+  Murmur.open(el);
+}, true);
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  if (e.target.id === 'f_item') { e.preventDefault(); ACT.liAdd(); }
+  else if (e.target.classList && e.target.classList.contains('liin')) { e.preventDefault(); e.target.blur(); }
+});
+document.addEventListener('focusout', e => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains('liin') || F.kind !== 'list') return;
+  setTimeout(() => {
+    if (Murmur.isOpen()) return;
+    const ix = +el.dataset.ix, v = el.value.trim();
+    if (v) S.templates[F.k][ix] = v; else S.templates[F.k].splice(ix, 1);
+    save(); refreshList(v ? ix : null);
+  }, 120);
+});
+
+/* ================= countdown timer + due alarm ================= */
+const Timer = (() => {
+  const pop = document.createElement('div'); pop.id = 'timer'; document.body.appendChild(pop);
+  const al = document.createElement('div'); al.id = 'alarm'; document.body.appendChild(al);
+  const hidden = new Set();
+  let ringing = null, beepT = null, shownKey = null;
+  const C = 2 * Math.PI * 30;
+  const mmss = ms => { const s = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return (h ? h + ':' + pad(m) : m) + ':' + pad(x); };
+  const item = d => d.kind === 't' ? findT(d.id) : findE(d.id);
+  function showPop(d, more) {
+    const lead = (S.settings.lead || 15) * 60000, left = d.at - Date.now(), frac = Math.max(0, Math.min(1, left / lead));
+    if (shownKey !== d.key + d.at) {
+      shownKey = d.key + d.at;
+      pop.innerHTML = `<div class="tm-ring"><svg viewBox="0 0 72 72"><circle cx="36" cy="36" r="30" class="tk"/><circle cx="36" cy="36" r="30" class="tv" stroke-dasharray="${C}"/></svg><span>${ic('clock', 26, 2.6)}</span></div>
+        <div class="tm-main"><div class="tm-label">Due soon</div><div class="tm-title"></div><div class="tm-sub"></div></div>
+        <div class="tm-count"></div>
+        <div class="tm-btns"><button class="tm-b ok" data-act="tmDone">${ic('check', 22, 3)}Done</button><button class="tm-b" data-act="tmHide">Hide</button></div>`;
+      pop.classList.add('show'); buzz(30); sound('done');
+    }
+    pop.dataset.key = d.key; pop.dataset.at = d.at;
+    pop.querySelector('.tm-title').textContent = d.title;
+    pop.querySelector('.tm-sub').textContent = 'Due ' + fmtClock(d.at) + (more ? ` · +${more} more coming up` : '');
+    pop.querySelector('.tm-count').textContent = mmss(left);
+    pop.querySelector('.tv').style.strokeDashoffset = (C * (1 - frac)).toFixed(1);
+    pop.classList.toggle('hot', left < 60000);
+  }
+  function hidePop() { pop.classList.remove('show'); shownKey = null; }
+  function ring(d, quiet) {
+    if (ringing && ringing.key === d.key) return;
+    ringing = d; hidePop();
+    al.innerHTML = `<div class="al-glow"></div><div class="al-card">
+      <div class="al-bell">${ic('bell', 64, 2.2)}</div>
+      <div class="al-now">DUE NOW</div>
+      <div class="al-title">${esc(d.title)}</div>
+      <div class="al-sub">${fmtClock(d.at)}${d.sub ? ' · ' + esc(d.sub) : ''}</div>
+      <button class="btn donebtn" data-act="alDone">${ic('check', 30, 3.2)}Done!</button>
+      <div class="al-row"><button class="btn ghost" data-act="alSnooze">${ic('snooze', 24)}Snooze 5 min</button><button class="btn ghost" data-act="alStop">${ic('x', 24, 2.8)}Stop alarm</button></div></div>`;
+    al.classList.add('show');
+    if (!quiet) startBeeps();
+  }
+  function startBeeps() {
+    clearInterval(beepT);
+    const beep = () => {
+      buzz(450);
+      try {
+        actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume && actx.resume();
+        [0, 0.22, 0.44].forEach(off => {
+          const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime + off;
+          o.type = 'square'; o.frequency.setValueAtTime(880, t); o.frequency.setValueAtTime(1175, t + 0.08);
+          g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+          o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + 0.2);
+        });
+      } catch (e) {}
+    };
+    beep(); beepT = setInterval(beep, 1300);
+  }
+  function stopRing() { clearInterval(beepT); beepT = null; al.classList.remove('show'); ringing = null; }
+  function ack(d) { const it = item(d); if (it) { it.ack = d.at; save(); } }
+  function tick() {
+    if (!S.settings || document.hidden) return;
+    const now = Date.now(), lead = (S.settings.lead || 0) * 60000;
+    const items = dueItems().filter(d => d.ack !== d.at);
+    if (S.settings.alarm !== false && !ringing) {
+      const due = items.find(d => d.at <= now && now - d.at < 10 * 60000);
+      if (due) { ring(due); return; }
+    }
+    if (ringing) return;
+    if (!lead) { hidePop(); return; }
+    const soon = items.filter(d => d.at > now && d.at - now <= lead && !hidden.has(d.key + d.at));
+    if (soon.length) showPop(soon[0], soon.length - 1); else hidePop();
+  }
+  Object.assign(ACT, {
+    tmHide: () => { hidden.add(pop.dataset.key + pop.dataset.at); hidePop(); },
+    tmDone: () => { const d = dueItems().find(x => x.key === pop.dataset.key); hidePop(); if (d) doneItem(d); },
+    alDone: () => { const d = ringing; stopRing(); if (d) doneItem(d); },
+    alStop: () => { const d = ringing; stopRing(); if (d) { ack(d); toast('Alarm stopped'); } },
+    alSnooze: () => {
+      const d = ringing; stopRing(); if (!d) return;
+      const it = item(d); if (it) { it.snoozeTo = Date.now() + 5 * 60000; save(); }
+      toast('Snoozed for 5 minutes ⏰'); render();
+    }
+  });
+  function doneItem(d) {
+    ack(d);
+    if (d.kind === 't') { const k = findT(d.id); if (k && !k.done) { k.done = true; k.doneAt = Date.now(); save(); render(); bigCelebrate(); toast('Done! ✓'); } }
+    else finishEvent(d.id);
+  }
+  window.openAlarm = key => { const d = dueItems().find(x => 'd' + x.key === key || x.key === key); if (d && d.ack !== d.at) ring(d, true); };
+  setInterval(tick, 1000);
+  return { tick, ringing:() => !!ringing };
+})();
+function takeAcks() {
+  try {
+    if (!N || !N.takeAcks) return;
+    const list = JSON.parse(N.takeAcks() || '[]'); let ch = false;
+    list.forEach(a => { const key = String(a.id || '').replace(/^d/, ''), it = key[0] === 't' ? findT(key.slice(1)) : findE(key.slice(1)); if (it) { it.ack = a.due; ch = true; } });
+    if (ch) save();
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) takeAcks(); });
+
 /* ================= boot ================= */
 if (N && N.getOrientation) { try { S.settings.orient = N.getOrientation(); } catch (e) {} }
 document.querySelectorAll('.tabs .ti').forEach((el, i) => el.innerHTML = ic(['home', 'cal', 'list', 'more'][i], 28, 2.3));
 $('#fab').innerHTML = ic('plus', 36, 3);
+takeAcks();
 render(false);
 syncReminders();
 setTimeout(() => {

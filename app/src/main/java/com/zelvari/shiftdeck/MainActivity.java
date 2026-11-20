@@ -24,7 +24,13 @@ import android.webkit.WebViewClient;
 /** Hosts the ShiftDeck web UI (assets/www) and gives it a small native bridge. */
 public class MainActivity extends Activity {
 
+    /** True while the app is on screen — the alarm receiver lets the in-app timer handle things then. */
+    static volatile boolean visible = false;
+
     private WebView web;
+    private Voice voice;
+    private boolean pageReady = false;
+    private String pendingAlarm = null;
     private boolean askedNotify = false;
     private SharedPreferences ui;
 
@@ -67,6 +73,7 @@ public class MainActivity extends Activity {
         s.setTextZoom(100);
         s.setSupportZoom(false);
 
+        voice = new Voice(this, this::js);
         web.addJavascriptInterface(new Bridge(), "Android");
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
@@ -74,7 +81,14 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 return openExternal(req.getUrl());
             }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                pageReady = true;
+                deliverAlarm();
+            }
         });
+        pendingAlarm = getIntent().getStringExtra("alarm");
         setContentView(web);
         web.loadUrl("file:///android_asset/www/index.html");
     }
@@ -89,6 +103,41 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    /** Run JavaScript in the page (safe from any thread). */
+    void js(String code) {
+        runOnUiThread(() -> { if (web != null) web.evaluateJavascript(code, null); });
+    }
+
+    private void deliverAlarm() {
+        if (!pageReady || pendingAlarm == null) return;
+        final String id = pendingAlarm;
+        pendingAlarm = null;
+        // Give the page a moment to finish its splash, then show the alarm card (quiet: the phone already rang).
+        web.postDelayed(() -> js("window.openAlarm&&openAlarm(" + org.json.JSONObject.quote(id) + ")"), 1600);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        String id = intent.getStringExtra("alarm");
+        if (id != null) { pendingAlarm = id; deliverAlarm(); }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code == Voice.PERM_REQUEST && voice != null) {
+            voice.onPermission(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (voice != null) voice.destroy();
+        super.onDestroy();
+    }
+
     @Override
     public void onBackPressed() {
         web.evaluateJavascript("window.onAndroidBack ? window.onAndroidBack() : false", value -> {
@@ -99,11 +148,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        visible = true;
         if (web != null) web.onResume();
     }
 
     @Override
     protected void onPause() {
+        visible = false;
+        if (voice != null) voice.cancel();
         if (web != null) web.onPause();
         super.onPause();
     }
@@ -132,6 +184,25 @@ public class MainActivity extends Activity {
             askedNotify = true;
             runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7));
         }
+
+        @JavascriptInterface
+        public String voiceStart(String hint) { return voice.start(hint); }
+
+        @JavascriptInterface
+        public void voiceStop() { voice.stop(); }
+
+        @JavascriptInterface
+        public void voiceCancel() { voice.cancel(); }
+
+        @JavascriptInterface
+        public String voiceStatus() { return voice.status(); }
+
+        @JavascriptInterface
+        public void voiceConfig(String json) { voice.config(json); }
+
+        /** Alarms the user stopped from the notification while the app was closed. */
+        @JavascriptInterface
+        public String takeAcks() { return Reminders.takeAcks(MainActivity.this); }
 
         @JavascriptInterface
         public String getOrientation() {
