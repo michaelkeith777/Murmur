@@ -352,7 +352,7 @@ function vToday() {
     <div class="hero-row"><div class="st" style="--i:1"><div class="hello">${greet}${nm}</div><div class="hello-date">${longDate(t)}</div></div>${ring}</div></section>`;
   html += `<div class="qa">
     <button class="q1 st rip" style="--i:${i++}" data-act="newTask"><span class="qi">${ic('plus', 28, 2.8)}</span>New To-Do</button>
-    <button class="q2 st rip" style="--i:${i++}" data-act="newShift"><span class="qi">${ic('cal', 26)}</span>Add Shift</button>
+    <button class="q2 st rip" style="--i:${i++}" data-act="newMeeting"><span class="qi">${ic('users', 26)}</span>Add Meeting</button>
     <button class="q3 st rip" style="--i:${i++}" data-act="newOrder"><span class="qi">${ic('printer', 26)}</span>Print Order</button>
     <button class="q4 st rip" style="--i:${i++}" data-act="checklists"><span class="qi">${ic('clip', 26)}</span>Checklists</button></div>`;
   // next up
@@ -488,7 +488,7 @@ function vMore() {
     ${row('importData', 'down', 'Restore', 'Paste a backup to bring everything back')}
     ${row('clearDone', 'broom', 'Clear finished to-dos', `${S.tasks.filter(k => k.done).length} finished`)}
   </div>
-  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.2 · Everything is saved on this device only.</div></div>`;
+  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.3 · Everything is saved on this device only.</div></div>`;
 }
 
 /* ================= sheets ================= */
@@ -512,12 +512,12 @@ function eventSheet(ev, preset = {}) {
   const type = ev ? ev.type : preset.type || 'shift';
   F = { kind:'event', id:ev && ev.id, type, remind:ev ? ev.remind : S.settings.defRemind, repeat:0, allDay:ev ? !!ev.allDay : type === 'off' };
   const d = ev ? ev.date : preset.date || selDay || today();
-  openSheet(`<h2 class="sh-t">${isNew ? (type === 'shift' ? 'Add a shift' : 'Add to calendar') : 'Edit event'}</h2>
+  openSheet(`<h2 class="sh-t">${isNew ? (type === 'shift' ? 'Add a shift' : type === 'meeting' ? 'Schedule a meeting' : 'Add to calendar') : 'Edit event'}</h2>
     <label class="lb">Type</label>${chipRow('type', Object.entries(ETYPES).map(([k, v]) => [k, v.n, v.c]), type)}
-    <label class="lb">Title</label><input id="f_title" class="in" maxlength="80" placeholder="${type === 'shift' ? 'Shift (optional title)' : 'What is it?'}" value="${esc(ev ? ev.title : '')}">
+    <label class="lb">Title</label><input id="f_title" class="in" maxlength="80" placeholder="${type === 'shift' ? 'Shift (optional title)' : type === 'meeting' ? 'e.g. Huddle with the manager' : 'What is it?'}" value="${esc(ev ? ev.title : '')}">
     <label class="lb">Date</label><input id="f_date" type="date" class="in" value="${d}">
-    <div id="f_times" style="${F.allDay ? 'display:none' : ''}"><div class="row2"><div><label class="lb">Start</label><input id="f_start" type="time" class="in" value="${ev ? ev.start || '' : (type === 'shift' ? '08:00' : '09:00')}"></div>
-      <div><label class="lb">End</label><input id="f_end" type="time" class="in" value="${ev ? ev.end || '' : (type === 'shift' ? '16:30' : '10:00')}"></div></div></div>
+    <div id="f_times" style="${F.allDay ? 'display:none' : ''}"><div class="row2"><div><label class="lb">Start</label><input id="f_start" type="time" class="in" value="${ev ? ev.start || '' : (preset.start || (type === 'shift' ? '08:00' : '09:00'))}"></div>
+      <div><label class="lb">End</label><input id="f_end" type="time" class="in" value="${ev ? ev.end || '' : (preset.end || (type === 'shift' ? '16:30' : '10:00'))}"></div></div></div>
     <button class="setrow" data-act="fAllDay" style="margin-top:8px"><span class="si">${ic('sun', 24)}</span><span class="sx">All day</span><span class="tgl ${F.allDay ? 'on' : ''}" id="f_ad"></span></button>
     ${isNew ? `<label class="lb">Repeat weekly</label>${chipRow('repeat', [[0, 'No'], [4, '4 weeks'], [8, '8 weeks'], [12, '12 weeks']], 0)}` : ''}
     <label class="lb">Remind me</label>${chipRow('remind', REMINDS, F.remind)}
@@ -699,6 +699,11 @@ const ACT = {
   newTask: () => taskSheet(null, { due:today() }),
   newTaskDay: () => taskSheet(null, { due:selDay }),
   newShift: () => eventSheet(null, { type:'shift', date:today() }),
+  newMeeting: () => {
+    const d = new Date(); d.setMinutes(d.getMinutes() < 30 ? 30 : 60, 0, 0);
+    const e = new Date(d.getTime() + 30 * 60000), hm = x => pad(x.getHours()) + ':' + pad(x.getMinutes());
+    eventSheet(null, { type:'meeting', date:ymd(d), start:hm(d), end:hm(e) });
+  },
   newEventToday: () => eventSheet(null, { type:'other', date:today() }),
   newOrder: () => taskSheet(null, { cat:'print', due:today() }),
   checklists: checklistSheet,
