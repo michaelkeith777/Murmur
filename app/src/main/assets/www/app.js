@@ -36,7 +36,9 @@ const P = {
   note:'M5 4h14v16H5zM9 9h6M9 13h6M9 17h3',
   sound:'M4 9v6h4l5 4V5L8 9zM16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12',
   vib:'M8 3h8v18H8zM4 8v8M20 8v8M1 10v4M23 10v4',
-  broom:'M14 3l-4 9M6 12h8l2 9H4z'
+  broom:'M14 3l-4 9M6 12h8l2 9H4z',
+  phonev:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
+  phoneh:'M2 8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zM18 11v2'
 };
 const ic = (n, s = 24, w = 2.3) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"><path d="${P[n] || P.dot}"/></svg>`;
 
@@ -61,6 +63,7 @@ const TCATS = {
 };
 const ORDER_CATS = ['print', 'ship', 'customer'];
 const REMINDS = [[-1,'None'],[0,'At time'],[15,'15 min'],[30,'30 min'],[60,'1 hour'],[1440,'1 day']];
+const ORIENT = [['auto', 'Auto-rotate', 'repeat', 'Turns with your device'], ['portrait', 'Portrait', 'phonev', 'Always upright'], ['landscape', 'Landscape', 'phoneh', 'Always sideways']];
 const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DOWL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MON = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -104,6 +107,7 @@ const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date
 const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return ymd(d); };
 const today = () => ymd(new Date());
 const fmtTime = t => { if (!t) return ''; let [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12; return `${h}:${pad(m)} ${ap}`; };
+const tinyTime = t => { if (!t) return ''; let [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'p' : 'a'; h = h % 12 || 12; return h + (m ? ':' + pad(m) : '') + ap; };
 const shortTime = t => fmtTime(t).replace(':00', '');
 const niceDate = s => {
   const t = today();
@@ -249,7 +253,7 @@ function render(anim) {
   // nav
   const idx = TAB_ORDER.indexOf(view);
   document.querySelectorAll('.tabs button').forEach((b, i) => b.classList.toggle('on', i === idx));
-  $('#ind').style.transform = `translateX(${idx * 100}%)`;
+  placeInd();
   const fab = $('#fab');
   fab.classList.toggle('show', view === 'calendar' || view === 'tasks');
   // after-paint effects
@@ -259,6 +263,13 @@ function render(anim) {
     if (anim) viewEl.querySelectorAll('[data-count]').forEach(countUp);
   }));
 }
+function placeInd() {
+  const b = document.querySelectorAll('.tabs button')[TAB_ORDER.indexOf(view)], ind = $('#ind');
+  if (!b) return;
+  ind.style.width = b.offsetWidth + 'px'; ind.style.height = b.offsetHeight + 'px';
+  ind.style.transform = `translate(${b.offsetLeft}px,${b.offsetTop}px)`;
+}
+addEventListener('resize', () => { placeInd(); });
 function countUp(el) {
   const to = parseFloat(el.dataset.count), dec = String(el.dataset.count).includes('.') ? 1 : 0, t0 = performance.now();
   const step = now => { const k = Math.min(1, (now - t0) / 900), e = 1 - Math.pow(1 - k, 3); el.textContent = (to * e).toFixed(dec); if (k < 1) requestAnimationFrame(step); };
@@ -343,16 +354,16 @@ function vToday() {
     <div class="stat st" style="--i:${i++}"><div class="sv" data-count="${S.tasks.filter(k => !k.done).length}">0</div><div class="sl">Open to-dos</div></div></div>`;
   // schedule
   const evs = eventsOn(t);
-  html += `<div class="sec st" style="--i:${i++}">Today's schedule<button class="link" data-act="newEventToday">+ Add</button></div>`;
+  html += `<div class="cols"><div class="col"><div class="sec st" style="--i:${i++}">Today's schedule<button class="link" data-act="newEventToday">+ Add</button></div>`;
   html += evs.length ? evs.map(e => eventRow(e, i++)).join('') : emptyBox('cal', 'Nothing on the calendar today.', i++);
   // todos
-  html += `<div class="sec st" style="--i:${i++}">To-do today<button class="link" data-act="newTask">+ Add</button></div>`;
+  html += `</div><div class="col"><div class="sec st" style="--i:${i++}">To-do today<button class="link" data-act="newTask">+ Add</button></div>`;
   html += open.length ? open.map(k => taskRow(k, i++)).join('') : emptyBox('check', total ? 'Everything\'s done. Nice work!' : 'No to-dos due today.', i++);
   if (dToday.length) {
     html += `<div class="grp st" style="--i:${i++}" data-act="toggleDoneToday"><span style="display:inline-flex;transition:transform .3s;transform:rotate(${showDoneToday ? 90 : 0}deg)">${ic('chevR', 18, 3)}</span> Done today <span class="n">${dToday.length}</span></div>`;
     if (showDoneToday) html += dToday.map(k => taskRow(k, i++)).join('');
   }
-  return html;
+  return html + '</div></div>';
 }
 
 /* ---------- CALENDAR ---------- */
@@ -368,22 +379,26 @@ function vCalendar() {
     const d = new Date(start); d.setDate(start.getDate() + k);
     const s = ymd(d), evs = eventsOn(s), tk = tasksDue(s).filter(x => !x.done);
     const dots = [...new Set(evs.map(e => (ETYPES[e.type] || ETYPES.other).c))].slice(0, 3).map(c => `<i style="--c:${c}"></i>`).join('') + (tk.length ? '<i style="--c:#FF8A3D;border-radius:2px"></i>' : '');
-    cells += `<button class="day ${d.getMonth() !== m ? 'out' : ''} ${s === t ? 'today' : ''} ${s === selDay ? 'sel' : ''}" data-act="pickDay" data-d="${s}">${d.getDate()}<span class="dots">${dots}</span></button>`;
+    const pills = evs.slice(0, 3).map(e => { const ty = ETYPES[e.type] || ETYPES.other; return `<span class="pill" style="--c:${ty.c}" data-act="calEvent" data-id="${e.id}" data-d="${s}"><b>${e.allDay ? '' : tinyTime(e.start) + ' '}</b>${esc(e.title)}</span>`; }).join('')
+      + (evs.length > 3 ? `<span class="pill more">+${evs.length - 3} more</span>` : '')
+      + (tk.length ? `<span class="pill todo">${ic('check', 11, 3.5)}${tk.length}<span class="tw"> to-do${tk.length > 1 ? 's' : ''}</span></span>` : '');
+    cells += `<button class="day ${d.getMonth() !== m ? 'out' : ''} ${s === t ? 'today' : ''} ${s === selDay ? 'sel' : ''}" data-act="pickDay" data-d="${s}"><span class="dn">${d.getDate()}</span><span class="dots">${dots}</span><span class="pills">${pills}</span></button>`;
   }
   const evs = eventsOn(selDay), tks = tasksDue(selDay).sort(taskSort);
   const dayHrs = evs.filter(e => e.type === 'shift').reduce((a, e) => a + evHours(e), 0);
   let i = 3;
-  let html = `<div class="calbar st"><h1>${MON[m]}<small>${y}</small></h1>
+  let html = `<div class="calwrap"><div class="calmain"><div class="calbar st"><h1>${MON[m]}<small>${y}</small></h1>
       <button class="nbtn" data-act="month" data-d="-1" aria-label="Previous month">${ic('chevL', 28, 2.8)}</button>
       <button class="nbtn" data-act="month" data-d="1" aria-label="Next month">${ic('chevR', 28, 2.8)}</button></div>
     <div class="calcard st" style="--i:1"><div class="wd">${DOW.map(d => `<span>${d.toUpperCase()}</span>`).join('')}</div>
-      <div class="calgrid" id="calgrid">${cells}</div></div>
-    <div class="dayhead st" style="--i:2"><h2>${niceDate(selDay) === 'Today' || niceDate(selDay) === 'Tomorrow' || niceDate(selDay) === 'Yesterday' ? niceDate(selDay) : longDate(selDay).split(',')[0]}<small>${longDate(selDay)}${dayHrs ? ` · ${fmtHrs(dayHrs)} hrs scheduled` : ''}</small></h2>
+      <div class="calgrid w${weeks}" id="calgrid">${cells}</div></div>
+      <div class="legend st" style="--i:2">${Object.values(ETYPES).map(v => `<span><i style="background:${v.c}"></i>${v.n}</span>`).join('')}</div></div>
+    <div class="calside"><div class="dayhead st" style="--i:2"><h2>${niceDate(selDay) === 'Today' || niceDate(selDay) === 'Tomorrow' || niceDate(selDay) === 'Yesterday' ? niceDate(selDay) : longDate(selDay).split(',')[0]}<small>${longDate(selDay)}${dayHrs ? ` · ${fmtHrs(dayHrs)} hrs scheduled` : ''}</small></h2>
       ${selDay !== t ? `<button class="sbtn" data-act="goToday">Today</button>` : `<button class="sbtn" data-act="newTaskDay">${ic('plus', 18, 3)}To-Do</button>`}</div>`;
   html += evs.length ? evs.map(e => eventRow(e, i++)).join('') : '';
   if (tks.length) { html += `<div class="grp st" style="--i:${i++}">To-dos due <span class="n">${tks.length}</span></div>` + tks.map(k => taskRow(k, i++)).join(''); }
   if (!evs.length && !tks.length) html += emptyBox('cal', 'Nothing scheduled.<br>Tap the orange <b>+</b> to add a shift or event.', i++);
-  return html;
+  return html + '</div></div>';
 }
 
 /* ---------- TASKS ---------- */
@@ -394,7 +409,7 @@ function vTasks() {
   let html = `<div class="page-h st"><h1>To-Do</h1><button class="sbtn" data-act="checklists">${ic('clip', 20, 2.5)}Checklists</button></div>
     <div class="filters st" style="--i:1">${F.map(([k, n]) => `<button class="chip ${taskFilter === k ? 'on' : ''}" data-act="filter" data-f="${k}">${n}${k === 'all' ? ` · ${open.length}` : ''}</button>`).join('')}</div>`;
   let i = 2;
-  const group = (title, list, cls = '') => list.length ? `<div class="grp st ${cls}" style="--i:${i++}">${title} <span class="n">${list.length}</span></div>` + list.map(k => taskRow(k, i++)).join('') : '';
+  const group = (title, list, cls = '') => list.length ? `<div class="grp st ${cls}" style="--i:${i++}">${title} <span class="n">${list.length}</span></div><div class="tl">` + list.map(k => taskRow(k, i++)).join('') + '</div>' : '';
   if (taskFilter === 'done') {
     const d = S.tasks.filter(k => k.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
     html += d.length ? `<div style="padding:4px 16px 0;text-align:right"><button class="link sbtn st" data-act="clearDone">${ic('broom', 18, 2.5)}Clear all</button></div>` + group('Completed', d) : emptyBox('check', 'Completed to-dos will show here.', i++);
@@ -420,13 +435,15 @@ function vMore() {
   const initials = (st.name || 'Me').split(/\s+/).map(s => s[0]).join('').slice(0, 2).toUpperCase();
   const row = (act, icon, title, sub, right = '', i = 0) => `<button class="setrow" data-act="${act}"><span class="si">${ic(icon, 24)}</span><span class="sx">${title}${sub ? `<small>${sub}</small>` : ''}</span>${right}</button>`;
   let i = 1;
-  return `<div class="page-h st"><h1>More</h1></div>
+  const om = ORIENT.find(o => o[0] === st.orient) || ORIENT[0];
+  return `<div class="narrow"><div class="page-h st"><h1>More</h1></div>
   <div class="card prof st rip" style="--i:${i++}" data-act="editProfile"><div class="avatar">${esc(initials)}</div><div style="flex:1;min-width:0"><div class="pn">${esc(st.name || 'Set your name')}</div><div class="ps">${esc([st.workplace, st.store ? 'Store #' + st.store : ''].filter(Boolean).join(' · ') || 'Add your store')}</div></div>${ic('edit', 24)}</div>
   <div class="sec st" style="--i:${i++}">Settings</div>
   <div class="card st" style="--i:${i++};padding:4px 16px">
     ${row('setDark', 'moon', 'Dark mode', 'Easier on the eyes for closing shifts', `<span class="tgl ${st.dark ? 'on' : ''}"></span>`)}
     ${row('setHaptics', 'vib', 'Vibration', 'Buzz when you tap and finish things', `<span class="tgl ${st.haptics ? 'on' : ''}"></span>`)}
     ${row('setSound', 'sound', 'Sounds', 'Little chime when a to-do is done', `<span class="tgl ${st.sound ? 'on' : ''}"></span>`)}
+    ${row('setOrient', om[2], 'Screen rotation', om[3], ic('chevR', 22))}
     ${row('setRemind', 'bell', 'Default reminder', (REMINDS.find(r => r[0] === st.defRemind) || REMINDS[2])[1] + ' before', ic('chevR', 22))}
   </div>
   <div class="sec st" style="--i:${i++}">Checklists</div>
@@ -439,7 +456,7 @@ function vMore() {
     ${row('importData', 'down', 'Restore', 'Paste a backup to bring everything back')}
     ${row('clearDone', 'broom', 'Clear finished to-dos', `${S.tasks.filter(k => k.done).length} finished`)}
   </div>
-  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.0 · Everything is saved on this phone only.</div>`;
+  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.1 · Everything is saved on this device only.</div></div>`;
 }
 
 /* ================= sheets ================= */
@@ -519,6 +536,12 @@ function tplSheet(k) {
     <textarea id="f_tpl" class="in" style="min-height:280px">${esc(S.templates[k].join('\n'))}</textarea>
     <div class="sh-actions"><button class="btn primary" data-act="saveTpl">Save checklist</button><button class="btn ghost" data-act="resetTpl">Reset to default</button></div>`);
 }
+function orientSheet() {
+  F = { kind:'orient', orient:S.settings.orient || 'auto' };
+  openSheet(`<h2 class="sh-t">Screen rotation</h2><p class="sh-s">Tablets start in landscape. Change it any time.</p>
+    ${ORIENT.map(([k, n, icn, sub]) => `<button class="tplbtn" style="background:${F.orient === k ? 'linear-gradient(135deg,#FF8A3D,#FF6200)' : 'linear-gradient(135deg,#7B3FD0,#4D148C)'}" data-act="pickOrient" data-v="${k}"><span class="qi">${ic(icn, 28)}</span><span>${n}<small>${sub}</small></span>${F.orient === k ? `<span style="margin-left:auto">${ic('check', 28, 3)}</span>` : ''}</button>`).join('')}`);
+}
+function applyOrient() { if (N && N.setOrientation) try { N.setOrientation(S.settings.orient || 'auto'); } catch (e) {} }
 function remindSheet() {
   F = { kind:'defRemind', remind:S.settings.defRemind };
   openSheet(`<h2 class="sh-t">Default reminder</h2><p class="sh-s">Used for new calendar events.</p><div style="height:8px"></div>${chipRow('remind', REMINDS, F.remind)}
@@ -662,6 +685,13 @@ const ACT = {
   setHaptics: () => { S.settings.haptics = !S.settings.haptics; save(); render(); buzz(20); },
   setSound: () => { S.settings.sound = !S.settings.sound; save(); render(); sound('done'); },
   setRemind: remindSheet,
+  setOrient: orientSheet,
+  pickOrient: a => { S.settings.orient = a.dataset.v; save(); applyOrient(); closeSheet(); render(); toast('Screen rotation: ' + ORIENT.find(o => o[0] === a.dataset.v)[1]); },
+  calEvent: a => {
+    const wide = innerWidth >= 760, wasSel = !!a.closest('.day.sel'), id = a.dataset.id;
+    if (!wasSel) ACT.pickDay(a.closest('.day'));
+    if (wide || wasSel) { const ev = findE(id); ev && setTimeout(() => eventSheet(ev), wasSel ? 0 : 180); }
+  },
   saveDefRemind: () => { S.settings.defRemind = F.remind; save(); closeSheet(); render(); },
   clearDone: () => {
     const done = S.tasks.filter(k => k.done); if (!done.length) return toast('Nothing to clear');
@@ -753,6 +783,7 @@ setInterval(() => { if (isOpen()) return; if (today() !== lastDay) { lastDay = t
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !isOpen()) render(); });
 
 /* ================= boot ================= */
+if (N && N.getOrientation) { try { S.settings.orient = N.getOrientation(); } catch (e) {} }
 document.querySelectorAll('.tabs .ti').forEach((el, i) => el.innerHTML = ic(['home', 'cal', 'list', 'more'][i], 28, 2.3));
 $('#fab').innerHTML = ic('plus', 36, 3);
 render(false);

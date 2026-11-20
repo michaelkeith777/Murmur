@@ -3,6 +3,8 @@ package com.zelvari.shiftdeck;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -24,10 +26,30 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private boolean askedNotify = false;
+    private SharedPreferences ui;
+
+    private boolean isTablet() {
+        return getResources().getConfiguration().smallestScreenWidthDp >= 600;
+    }
+
+    /** "auto" | "portrait" | "landscape". Tablets start in landscape, phones turn freely. */
+    private String orientation() {
+        return ui.getString("orient", isTablet() ? "landscape" : "auto");
+    }
+
+    private void applyOrientation(String mode) {
+        int req;
+        if ("portrait".equals(mode)) req = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT;
+        else if ("landscape".equals(mode)) req = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
+        else req = ActivityInfo.SCREEN_ORIENTATION_FULL_USER;
+        setRequestedOrientation(req);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ui = getSharedPreferences("ui", MODE_PRIVATE);
+        applyOrientation(orientation());
         Window w = getWindow();
         w.setStatusBarColor(Color.parseColor("#4D148C"));
         w.setNavigationBarColor(Color.parseColor("#2A0759"));
@@ -109,6 +131,17 @@ public class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
             askedNotify = true;
             runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 7));
+        }
+
+        @JavascriptInterface
+        public String getOrientation() {
+            return orientation();
+        }
+
+        @JavascriptInterface
+        public void setOrientation(String mode) {
+            ui.edit().putString("orient", mode).apply();
+            runOnUiThread(() -> applyOrientation(mode));
         }
 
         @JavascriptInterface

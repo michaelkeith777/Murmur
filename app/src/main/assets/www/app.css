@@ -37,8 +37,9 @@ button{font:inherit;color:inherit;cursor:pointer}
 .tabs button b{font-size:13.5px;font-weight:800;letter-spacing:.2px}
 .tabs button.on{color:var(--navOn)}
 .tabs button.on .ti{animation:bounce .5s var(--spring)}
-.ind{position:absolute;top:10px;left:0;width:25%;height:38px;display:flex;justify-content:center;transition:transform .5s var(--spring);z-index:0}
-.ind::before{content:"";width:68px;height:38px;border-radius:19px;background:var(--soft)}
+.ind{position:absolute;top:0;left:0;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:transform .5s var(--spring),width .3s,height .3s;z-index:0;pointer-events:none}
+.ind::before{content:"";width:68px;height:38px;border-radius:19px;background:var(--soft);flex:none}
+.ind::after{content:"";height:21.5px;flex:none}
 
 /* ---------- FAB ---------- */
 #fab{position:fixed;right:20px;bottom:104px;width:72px;height:72px;border-radius:24px;border:0;background:linear-gradient(135deg,var(--o2),var(--o));color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 28px rgba(255,98,0,.45);z-index:19;transform:scale(0);transition:transform .45s var(--spring),border-radius .3s;overflow:hidden}
@@ -156,7 +157,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .btn.ghost{background:var(--soft);color:var(--text)}
 .btn.danger{background:transparent;color:var(--bad);border:2px solid color-mix(in srgb,var(--bad) 35%,transparent)}
 .btn + .btn{margin-top:12px}
-.sbtn{min-height:52px;padding:0 18px;border-radius:18px;border:0;background:var(--soft);color:var(--p);font-weight:900;font-size:16px;display:inline-flex;align-items:center;gap:6px;position:relative;overflow:hidden;transition:transform .2s var(--spring)}
+.sbtn{white-space:nowrap;min-height:52px;padding:0 18px;border-radius:18px;border:0;background:var(--soft);color:var(--p);font-weight:900;font-size:16px;display:inline-flex;align-items:center;gap:6px;position:relative;overflow:hidden;transition:transform .2s var(--spring)}
 .sbtn:active{transform:scale(.93)}
 .dark .sbtn{color:var(--o2)}
 
@@ -170,16 +171,26 @@ button{font:inherit;color:inherit;cursor:pointer}
 .wd{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:13px;font-weight:900;color:var(--dim);padding:2px 0 8px;letter-spacing:.4px}
 .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .calgrid.mL{animation:inR .38s var(--ease)} .calgrid.mR{animation:inL .38s var(--ease)}
-.day{height:56px;border:0;background:none;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:18px;font-weight:800;color:var(--text);position:relative;transition:background .25s,transform .2s var(--spring)}
-.day:active{transform:scale(.88)}
-.day.out{opacity:.3}
-.day.today{color:var(--o)}
-.day.today::before{content:"";position:absolute;inset:3px;border:2.5px solid var(--o);border-radius:16px}
-.day.sel{background:var(--p);color:#fff;animation:pop .35s var(--spring)}
-.day.sel.today::before{border-color:var(--o2)}
-.dots{display:flex;gap:3px;height:7px}
-.dots i{width:7px;height:7px;border-radius:50%;background:var(--c)}
-.day.sel .dots i{box-shadow:0 0 0 1.5px #fff}
+.day{min-height:80px;border:0;background:none;border-radius:16px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:3px;padding:4px 2px 5px;color:var(--text);position:relative;overflow:hidden;text-align:left;transition:background .25s,transform .2s var(--spring)}
+.day:active{transform:scale(.92)}
+.day.out{opacity:.35}
+.day .dn{align-self:center;width:34px;height:34px;flex:none;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:800;transition:background .25s,color .25s}
+.day.today .dn{color:var(--o);box-shadow:inset 0 0 0 2.5px var(--o)}
+.day.sel{background:var(--soft)}
+.day.sel .dn{background:var(--p);color:#fff;animation:pop .35s var(--spring)}
+.day.sel.today .dn{background:var(--o);box-shadow:none}
+.dots{display:none}
+.pills{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pill{display:block;font-size:10px;font-weight:800;line-height:1.4;padding:1px 4px;border-radius:5px;border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 15%,transparent);color:var(--c);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dark .pill{color:color-mix(in srgb,var(--c) 55%,#fff)}
+.pill b{display:none}
+.pill .ic{display:inline-block;vertical-align:-1px;margin-right:2px}
+.pill.todo{--c:#FF6200;background:transparent}
+.pill.more{--c:#7A7290;background:transparent;border-left-color:transparent}
+.pill:not(.todo):nth-child(n+3),.pill.more,.pill .tw{display:none}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;padding:12px 22px 0;font-size:13px;font-weight:700;color:var(--dim)}
+.legend span{display:inline-flex;align-items:center}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:4px;margin-right:6px}
 .dayhead{display:flex;align-items:center;justify-content:space-between;margin:22px 20px 12px;gap:10px}
 .dayhead h2{margin:0;font-size:22px;font-weight:900;letter-spacing:-.3px}
 .dayhead h2 small{display:block;color:var(--dim);font-size:14px;font-weight:700;letter-spacing:0;margin-top:2px}
@@ -248,4 +259,49 @@ textarea.in{padding:16px 18px;min-height:110px;resize:none;line-height:1.4}
 @keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,98,0,.5)}50%{box-shadow:0 0 0 10px rgba(255,98,0,0)}}
 .live{animation:pulse 2s infinite}
+/* ---------- tablets & landscape: side rail, columns, wall-planner calendar ---------- */
+@media (min-width:760px){
+  #app{padding-left:112px}
+  .tabs{top:0;bottom:0;right:auto;width:112px;height:auto;flex-direction:column;justify-content:center;gap:10px;border-radius:0 32px 32px 0;padding:0;box-shadow:6px 0 24px rgba(30,10,60,.08)}
+  .tabs button{flex:none;height:96px}
+  #view{padding-bottom:40px}
+  #fab{bottom:28px;right:28px}
+  #toast{left:calc(50% + 56px - 260px);right:auto;width:520px;bottom:28px}
+  .sheet{left:calc(50% + 56px);right:auto;width:min(680px,92vw);transform:translate(-50%,105%)}
+  .open .sheet{transform:translate(-50%,0)}
+  .hero{margin:0 16px;border-radius:0 0 34px 34px;padding:26px 30px 30px}
+  .qa{grid-template-columns:repeat(4,1fr)}
+  .qa button{min-height:96px}
+  .stats{margin-top:14px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;align-items:start}
+  .tl{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));padding:0 6px}
+  .tl .swipe{margin:0 10px 10px}
+  .narrow{max-width:780px;margin:0 auto}
+  .calwrap{display:grid;grid-template-columns:minmax(0,1fr) 380px;align-items:start}
+  .calside{position:sticky;top:0;max-height:100vh;overflow-y:auto;padding:4px 0 40px}
+  .calbar{padding:16px 16px 6px}
+  .calcard{margin:4px 8px 0 16px;padding:12px 10px}
+  .calgrid{grid-auto-rows:minmax(96px,calc((100vh - 200px) / var(--w,5)))}
+  .calgrid.w4{--w:4} .calgrid.w5{--w:5} .calgrid.w6{--w:6}
+  .day{min-height:0;padding:6px;gap:4px;background:var(--bg)}
+  .day.out{background:transparent}
+  .day.sel{background:var(--soft);box-shadow:inset 0 0 0 2.5px var(--p)}
+  .day .dn{align-self:flex-start;width:36px;height:36px;font-size:18px}
+  .pills{gap:3px}
+  .pill{font-size:12.5px;padding:3px 7px;border-radius:7px;border-left-width:4px;cursor:pointer}
+  .pill b{display:inline;font-weight:900}
+  .pill:not(.todo):nth-child(n+3),.pill.more,.pill .tw{display:block}
+  .pill .tw{display:inline}
+  .pill:active{filter:brightness(.92)}
+}
+@media (min-width:760px) and (max-height:520px){
+  .hero{padding:16px 24px 18px} .hello{font-size:24px} .ring{transform:scale(.8);margin:-8px}
+  .qa button{min-height:76px;font-size:16px;padding:12px} .qa button .qi{width:36px;height:36px}
+  .calgrid{grid-auto-rows:minmax(74px,auto)}
+  #app{padding-left:92px} .tabs{width:92px;gap:2px} .tabs button{height:80px}
+  #toast{left:calc(50% + 46px - 260px)} .sheet{left:calc(50% + 46px)}
+  .calwrap{grid-template-columns:minmax(0,1fr) 300px}
+  .pill b{display:none}
+  .pill{font-size:11px;padding:2px 5px}
+}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
