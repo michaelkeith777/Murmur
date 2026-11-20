@@ -83,9 +83,9 @@ const DEF = {
   events: [], tasks: [],
   settings: { name:'', store:'', workplace:'FedEx Office', dark:false, haptics:true, sound:true, defRemind:15, welcomed:false, talkFirst:true, lead:15, alarm:true },
   templates: {
-    opening: ['Power on and warm up production printers','Check online and overnight print orders','Count the cash drawer','Stock paper, toner and packing supplies','Turn on self-serve copiers and computers','Review pickups due today'],
-    mid:     ['Rush print orders due today','Customer callbacks waiting','Same-day shipments before the pickup truck','Equipment problems to report'],
-    closing: ['Stage outgoing packages for pickup','Clean counter and self-serve stations','Restock paper and shipping supplies','Close out the register','Check holds and pickup shelf','Power down equipment']
+    opening: [],
+    mid:     [],
+    closing: []
   }
 };
 let S;
@@ -95,8 +95,21 @@ S.events = Array.isArray(S.events) ? S.events : [];
 S.tasks = Array.isArray(S.tasks) ? S.tasks : [];
 S.settings = Object.assign({}, DEF.settings, S.settings || {});
 S.templates = Object.assign({}, DEF.templates, S.templates || {});
-// v1.2: the old "Shift Change" list becomes "Urgent items to address" (only if it was never edited)
-if (JSON.stringify(S.templates.mid) === JSON.stringify(['Hand off open print jobs','Update order notes for next shift','Tidy counter and self-serve area','Check the pickup shelf'])) S.templates.mid = DEF.templates.mid.slice();
+const STARTER_ITEMS = new Set([].concat(
+  ['Power on and warm up production printers','Check online and overnight print orders','Count the cash drawer','Stock paper, toner and packing supplies','Turn on self-serve copiers and computers','Review pickups due today'],
+  ['Rush print orders due today','Customer callbacks waiting','Same-day shipments before the pickup truck','Equipment problems to report'],
+  ['Stage outgoing packages for pickup','Clean counter and self-serve stations','Restock paper and shipping supplies','Close out the register','Check holds and pickup shelf','Power down equipment'],
+  ['Hand off open print jobs','Update order notes for next shift','Tidy counter and self-serve area','Check the pickup shelf']
+));
+// v1.4: clean slate — drop the starter list items (and to-dos made from them) that came with earlier versions.
+let askFresh = false;
+if (!S.settings.cleaned14) {
+  Object.keys(S.templates).forEach(k => { S.templates[k] = (S.templates[k] || []).filter(x => !STARTER_ITEMS.has(x)); });
+  S.tasks = S.tasks.filter(t => !STARTER_ITEMS.has(t.title));
+  S.settings.cleaned14 = true;
+  askFresh = S.settings.welcomed && (S.tasks.length + S.events.length) > 0;
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+}
 
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} syncReminders(); };
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -487,8 +500,9 @@ function vMore() {
     ${row('exportData', 'up', 'Back up', 'Share a backup copy to email, Drive, etc.')}
     ${row('importData', 'down', 'Restore', 'Paste a backup to bring everything back')}
     ${row('clearDone', 'broom', 'Clear finished to-dos', `${S.tasks.filter(k => k.done).length} finished`)}
+    ${row('freshAsk', 'trash', 'Start fresh', 'Erase all events, to-dos and list items')}
   </div>
-  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.3 · Everything is saved on this device only.</div></div>`;
+  <div class="empty st" style="--i:${i++};font-size:14px">ShiftDeck 1.4 · Everything is saved on this device only.</div></div>`;
 }
 
 /* ================= sheets ================= */
@@ -554,7 +568,7 @@ function checklistSheet() {
 }
 function listItemsHtml(k) {
   const items = S.templates[k];
-  if (!items.length) return `<div class="empty" style="padding:18px">${ic('list', 30)}<br>No items yet. Add your first one above.</div>`;
+  if (!items.length) return `<div class="empty" style="padding:18px"><div class="eico">${ic('list', 34, 2.2)}</div>No items yet. Add your first one above.</div>`;
   return items.map((x, ix) => `<div class="li" style="--i:${ix}" data-ix="${ix}">
     <span class="lnum">${ix + 1}</span>
     <span class="ltx" data-act="liEdit" data-ix="${ix}">${esc(x)}</span>
@@ -569,15 +583,15 @@ function listSheet(k) {
     <div class="addrow"><input id="f_item" class="in" maxlength="120" placeholder="Type or tap the mic" enterkeyhint="done"><button class="addbtn" data-act="liAdd" aria-label="Add">${ic('plus', 30, 3)}</button></div>
     <label class="lb">On this list · tap an item to change it</label>
     <div id="liBox">${listItemsHtml(k)}</div>
-    <div class="sh-actions"><button class="btn primary" data-act="runTpl" data-k="${k}" id="liRun">${ic('check', 26, 3)}Put all ${S.templates[k].length} on today's to-dos</button>
-    <button class="btn ghost" data-act="closeSheet">Done</button>
-    <button class="link-sm" data-act="liReset">Reset this list to the starter items</button></div>`, 'f_item');
+    <div class="sh-actions"><button class="btn primary" data-act="runTpl" data-k="${k}" id="liRun" style="${S.templates[k].length ? '' : 'display:none'}">${ic('check', 26, 3)}Put all ${S.templates[k].length} on today's to-dos</button>
+    <button class="btn ghost" data-act="closeSheet">Done</button></div>`, 'f_item');
 }
 function refreshList(anim) {
   const box = $('#liBox'); if (!box) return;
   box.innerHTML = listItemsHtml(F.k);
   if (anim != null) { const el = box.querySelector(`.li[data-ix="${anim}"]`); el && el.classList.add('pop'); }
-  const run = $('#liRun'); if (run) run.innerHTML = `${ic('check', 26, 3)}Put all ${S.templates[F.k].length} on today's to-dos`;
+  const run = $('#liRun'); if (run) run.style.display = S.templates[F.k].length ? '' : 'none';
+  if (run) run.innerHTML = `${ic('check', 26, 3)}Put all ${S.templates[F.k].length} on today's to-dos`;
 }
 function eventActions(e) {
   F = { kind:'evact', id:e.id };
@@ -591,6 +605,13 @@ function eventActions(e) {
       : `<button class="btn donebtn" data-act="evDone">${ic('check', 30, 3.2)}Done!</button>`}
     <button class="btn purple" data-act="evEdit">${ic('edit', 24)}Edit details</button>
     <button class="btn ghost" data-act="closeSheet">Close</button></div>`);
+}
+function freshSheet(first) {
+  const n = S.events.length, t = S.tasks.length, l = Object.values(S.templates).reduce((a, x) => a + x.length, 0);
+  openSheet(`<h2 class="sh-t">${first === true ? 'Start with a clean slate?' : 'Start fresh?'}</h2>
+    <p class="sh-s">${first === true ? 'I cleared out the sample list items. ' : ''}This erases <b>${n}</b> calendar event${n === 1 ? '' : 's'}, <b>${t}</b> to-do${t === 1 ? '' : 's'} and <b>${l}</b> list item${l === 1 ? '' : 's'}. Your name, store and settings stay.</p>
+    <div class="sh-actions"><button class="btn danger" data-act="freshGo" style="border-width:3px">${ic('trash', 24)}Yes, erase everything</button>
+    <button class="btn ghost" data-act="closeSheet">${first === true ? 'No, keep what I have' : 'Cancel'}</button></div>`);
 }
 function voiceSheet() {
   const st = voiceStatus();
@@ -739,7 +760,13 @@ const ACT = {
     save(); buzz(14); sound('done'); a.classList.add('ok'); a.innerHTML = ic('check', 20, 3.2) + '<b>Added</b>';
     const r = a.getBoundingClientRect(); confetti(r.left + r.width / 2, r.top, 16, .5);
   },
-  liReset: () => { S.templates[F.k] = DEF.templates[F.k].slice(); save(); refreshList(); buzz(); toast('Starter items restored'); },
+  freshAsk: freshSheet,
+  freshGo: () => {
+    S.events = []; S.tasks = []; Object.keys(S.templates).forEach(k => { S.templates[k] = []; });
+    lastRing = 1; save(); closeSheet(); view = 'today'; render(true);
+    setTimeout(() => confetti(innerWidth / 2, innerHeight * .35, 50, 1.1), 300);
+    toast('All clear — fresh start ✨');
+  },
   setTalk: () => { S.settings.talkFirst = !S.settings.talkFirst; save(); render(); },
   setVoiceKey: voiceSheet,
   saveKey: () => { const k = val('f_key').trim(); if (!k) return shakeEl('f_key'); voiceConfig({ key:k }); closeSheet(); render(); toast('Murmur AI voice is on 🎙️'); },
@@ -1175,6 +1202,6 @@ syncReminders();
 setTimeout(() => {
   $('#splash').classList.add('hide');
   render(true);
-  setTimeout(() => { $('#splash').remove(); if (!S.settings.welcomed) profileSheet(true); }, 520);
+  setTimeout(() => { $('#splash').remove(); if (!S.settings.welcomed) profileSheet(true); else if (askFresh) freshSheet(true); }, 520);
 }, 1300);
 })();
