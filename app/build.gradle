@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.zelvari.shiftdeck'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.zelvari.shiftdeck'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // One fixed key for every build, so a new APK installs over the old one and keeps your data.
+    signingConfigs {
+        shiftdeck {
+            storeFile rootProject.file('shiftdeck.jks')
+            storePassword 'shiftdeck1'
+            keyAlias 'shiftdeck'
+            keyPassword 'shiftdeck1'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        debug { signingConfig signingConfigs.shiftdeck }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.shiftdeck
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
