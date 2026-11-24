@@ -192,6 +192,13 @@ public class MurmurIME extends InputMethodService {
         if (keys != null) setupKeys();
         setupExtras();
         if (keys != null) refreshLook();
+        if (keys != null) {
+            narrow = null;
+            fitWidth(getResources().getDisplayMetrics().widthPixels);
+            root.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (r - l != or - ol) ui.post(() -> fitWidth(r - l));
+            });
+        }
 
         render(IDLE_HINT);
         return root;
@@ -223,6 +230,8 @@ public class MurmurIME extends InputMethodService {
         readTypingOptions(info);
         closePanel();
         if (keys != null) refreshLook();
+        if (keys != null && root != null) fitWidth(root.getWidth() > 0 ? root.getWidth()
+                : getResources().getDisplayMetrics().widthPixels);
         if (keys != null) {
             keys.setSymbols(symbols);
             keys.setShift(shift);
@@ -1000,6 +1009,76 @@ public class MurmurIME extends InputMethodService {
     }
 
     /** One-handed mode: the keys and mic move to one side and the free side holds two buttons. */
+    // ---- narrow screens (a foldable's cover screen) ----------------------------------
+
+    /** Below this width the big mic column moves into the top bar so the letters get the room. */
+    private static final int NARROW_DP = 560;
+    private Boolean narrow;
+
+    /** Picks the layout from the keyboard's real width, so it follows folding and unfolding. */
+    private void fitWidth(int widthPx) {
+        if (root == null || keys == null || widthPx <= 0) return;
+        float density = getResources().getDisplayMetrics().density;
+        boolean n = widthPx / density < NARROW_DP;
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        if (n) {
+            int pct = Math.max(80, Math.min(130, Prefs.sp(this).getInt(Prefs.NARROW_KEY_SIZE, 100)));
+            keys.setSizing(true, pct / 100f, Prefs.flag(this, Prefs.NARROW_NUMBERS, true), screenH);
+        } else {
+            keys.setSizing(false, 1f, true, 0);
+        }
+        if (narrow != null && narrow == n) return;
+        if (narrow == null && !n) {
+            // Wide screens keep the layout exactly as the XML has it.
+            narrow = false;
+            return;
+        }
+        narrow = n;
+        View col = root.findViewById(R.id.mic_col);
+        View undo = root.findViewById(R.id.k_undo);
+        if (!(col instanceof ViewGroup) || !(statusRow instanceof ViewGroup) || undo == null || mic == null) return;
+        ViewGroup column = (ViewGroup) col;
+        ViewGroup bar = (ViewGroup) statusRow;
+        detach(undo);
+        detach(mic);
+        if (n) {
+            LinearLayout.LayoutParams ul = new LinearLayout.LayoutParams(dp(42), dp(36));
+            ul.setMargins(dp(2), 0, 0, 0);
+            LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(dp(56), dp(38));
+            ml.setMargins(dp(4), 0, dp(2), 0);
+            mic.setPadding(dp(10), dp(4), dp(10), dp(4));
+            bar.addView(undo, ul);
+            bar.addView(mic, ml);
+            column.setVisibility(View.GONE);
+            setButtonWidth(rewriteBtn, 36);
+            setButtonWidth(toolsBtn, 36);
+            if (toneChip != null) toneChip.setPadding(dp(8), 0, dp(8), 0);
+        } else {
+            LinearLayout.LayoutParams ul = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
+            ul.setMargins(dp(3), dp(3), dp(3), dp(3));
+            LinearLayout.LayoutParams ml = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+            ml.setMargins(dp(3), dp(3), dp(3), dp(3));
+            mic.setPadding(dp(20), 0, dp(20), 0);
+            column.addView(undo, ul);
+            column.addView(mic, ml);
+            column.setVisibility(View.VISIBLE);
+            setButtonWidth(rewriteBtn, 42);
+            setButtonWidth(toolsBtn, 42);
+            if (toneChip != null) toneChip.setPadding(dp(12), 0, dp(12), 0);
+        }
+    }
+
+    private static void detach(View v) {
+        if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
+    }
+
+    private void setButtonWidth(View b, int widthDp) {
+        if (b == null || b.getLayoutParams() == null) return;
+        b.getLayoutParams().width = dp(widthDp);
+        b.requestLayout();
+    }
+
     private void applyHand() {
         if (!(keyRow instanceof LinearLayout)) return;
         LinearLayout row = (LinearLayout) keyRow;

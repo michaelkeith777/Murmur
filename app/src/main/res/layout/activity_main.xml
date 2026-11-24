@@ -114,6 +114,25 @@
             style="@style/Label"
             android:text="Click sound on each key" />
 
+        <TextView style="@style/Label" android:text="Narrow screens" />
+        <TextView
+            style="@style/Hint"
+            android:text="On a narrow screen, like the cover screen of a Galaxy Z Fold, the mic and ↶ move up into the top bar so the letters use the full width. Wide screens keep the usual layout." />
+        <Switch
+            android:id="@+id/narrow_numbers"
+            style="@style/Label"
+            android:text="Number row on narrow screens" />
+        <TextView
+            android:id="@+id/narrow_size_label"
+            style="@style/Label"
+            android:text="Key height on narrow screens" />
+        <SeekBar
+            android:id="@+id/narrow_size"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:max="50" />
+
         <TextView style="@style/Label" android:text="Keyboard theme" />
         <TextView
             style="@style/Hint"

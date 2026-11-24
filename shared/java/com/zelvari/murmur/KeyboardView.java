@@ -80,7 +80,11 @@ public class KeyboardView extends View {
 
     private final List<Key> keys = new ArrayList<>();
     private final float density;
-    private final float rowNum, rowLetter, gap, radius;
+    private final float radius;
+    private float rowNum, rowLetter, gap;
+    /** Number row height when shown; rowNum is 0 while the number row is hidden. */
+    private float rowNumShown;
+    private boolean showNumbers = true;
     private float keyW = 1;
     private float lettersTop;
     private final float[] letterX = new float[26], letterY = new float[26];
@@ -168,7 +172,7 @@ public class KeyboardView extends View {
     public KeyboardView(Context context, AttributeSet attrs) {
         super(context, attrs);
         density = getResources().getDisplayMetrics().density;
-        rowNum = 42 * density;
+        rowNumShown = rowNum = 42 * density;
         rowLetter = 52 * density;
         gap = 2.5f * density;
         radius = 9 * density;
@@ -222,6 +226,37 @@ public class KeyboardView extends View {
         if (on == symbols) return;
         symbols = on;
         buildKeys();
+        requestLayout();
+        layoutKeys();
+        invalidate();
+    }
+
+    /**
+     * Sizes the keys. The full-size layout (wide screens) is 42dp numbers and 52dp letters;
+     * narrow screens like a foldable's cover screen pass their own scale and number row choice.
+     */
+    void setSizing(boolean narrow, float scale, boolean numbers, int screenHeightPx) {
+        float num = (narrow ? 38 : 42) * density * scale;
+        float letter = 52 * density * scale;
+        float g = (narrow ? 2f : 2.5f) * density;
+        if (narrow && screenHeightPx > 0) {
+            // Never let the keys take more than about 40% of a tall, narrow screen.
+            float total = (numbers ? num : 0) + 4 * letter;
+            float max = screenHeightPx * 0.40f;
+            if (total > max) {
+                float f = max / total;
+                num *= f;
+                letter *= f;
+            }
+        }
+        boolean numbersWas = showNumbers;
+        if (num == rowNumShown && letter == rowLetter && g == gap && numbers == numbersWas) return;
+        rowNumShown = num;
+        rowLetter = letter;
+        gap = g;
+        showNumbers = numbers;
+        buildKeys();
+        requestLayout();
         layoutKeys();
         invalidate();
     }
@@ -239,7 +274,9 @@ public class KeyboardView extends View {
 
     private void buildKeys() {
         keys.clear();
-        for (char c : NUMBERS.toCharArray()) add(0, new Key(CHAR, String.valueOf(c), String.valueOf(c), 1, true));
+        // Hiding the number row only hides it on the letters; the symbols page keeps its digits.
+        rowNum = showNumbers || symbols ? rowNumShown : 0;
+        if (showNumbers || symbols) for (char c : NUMBERS.toCharArray()) add(0, new Key(CHAR, String.valueOf(c), String.valueOf(c), 1, true));
         String[] rows = symbols ? SYMBOLS : LETTERS;
         for (char c : rows[0].toCharArray()) add(1, charKey(c));
         for (char c : rows[1].toCharArray()) add(2, charKey(c));

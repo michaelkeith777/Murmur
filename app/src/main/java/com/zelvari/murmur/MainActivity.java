@@ -14,6 +14,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -24,7 +25,9 @@ public class MainActivity extends Activity {
     private TextView stepMic, stepEnable, stepPick, stepOneTap;
     private EditText apiKey, style, vocab, language, baseUrl, sttModel, llmModel;
     private Switch cleanup, autoStart, autoReturn, commands, learn, learnStyle;
-    private Switch autocorrect, swipe, keyVibrate, keySound;
+    private Switch autocorrect, swipe, keyVibrate, keySound, narrowNumbers;
+    private SeekBar narrowSize;
+    private TextView narrowSizeLabel;
     private Spinner tone, theme;
     private Switch clipHistory;
     private EditText shortcutsField;
@@ -63,6 +66,24 @@ public class MainActivity extends Activity {
         swipe = findViewById(R.id.swipe);
         keyVibrate = findViewById(R.id.key_vibrate);
         keySound = findViewById(R.id.key_sound);
+        narrowNumbers = findViewById(R.id.narrow_numbers);
+        narrowSize = findViewById(R.id.narrow_size);
+        narrowSizeLabel = findViewById(R.id.narrow_size_label);
+        narrowSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                showNarrowSize(80 + progress);
+                if (fromUser) Prefs.sp(MainActivity.this).edit().putInt(Prefs.NARROW_KEY_SIZE, 80 + progress).apply();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+            }
+        });
         learned = findViewById(R.id.learned);
         samplesInfo = findViewById(R.id.samples_info);
         tone = findViewById(R.id.tone);
@@ -196,7 +217,15 @@ public class MainActivity extends Activity {
         swipe.setChecked(Prefs.flag(this, Prefs.SWIPE, true));
         keyVibrate.setChecked(Prefs.flag(this, Prefs.KEY_VIBRATE, true));
         keySound.setChecked(Prefs.flag(this, Prefs.KEY_SOUND, false));
+        narrowNumbers.setChecked(Prefs.flag(this, Prefs.NARROW_NUMBERS, true));
+        int size = Math.max(80, Math.min(130, Prefs.sp(this).getInt(Prefs.NARROW_KEY_SIZE, 100)));
+        narrowSize.setProgress(size - 80);
+        showNarrowSize(size);
         refreshLearned(true);
+    }
+
+    private void showNarrowSize(int pct) {
+        narrowSizeLabel.setText("Key height on narrow screens: " + pct + "%");
     }
 
     /** Shows the latest word list and learned fixes, unless the user is editing them here. */
@@ -234,6 +263,8 @@ public class MainActivity extends Activity {
                 .putBoolean(Prefs.SWIPE, swipe.isChecked())
                 .putBoolean(Prefs.KEY_VIBRATE, keyVibrate.isChecked())
                 .putBoolean(Prefs.KEY_SOUND, keySound.isChecked())
+                .putBoolean(Prefs.NARROW_NUMBERS, narrowNumbers.isChecked())
+                .putInt(Prefs.NARROW_KEY_SIZE, 80 + narrowSize.getProgress())
                 .putBoolean(Prefs.CLIP_HISTORY, clipHistory.isChecked())
                 .putString(Prefs.SHORTCUTS, text(shortcutsField))
                 .apply();

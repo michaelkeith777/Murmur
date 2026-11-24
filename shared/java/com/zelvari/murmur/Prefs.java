@@ -33,6 +33,10 @@ final class Prefs {
     static final String SWIPE = "swipe";
     /** A light buzz on every key. */
     static final String KEY_VIBRATE = "key_vibrate";
+    /** Key height on narrow screens like a foldable's cover screen, in percent (80 to 130). */
+    static final String NARROW_KEY_SIZE = "narrow_key_size";
+    /** Show the number row on narrow screens. */
+    static final String NARROW_NUMBERS = "narrow_numbers";
     /** A click sound on every key. */
     static final String KEY_SOUND = "key_sound";
     /** Words the user kept by undoing an autocorrect, one per line, newest last. */

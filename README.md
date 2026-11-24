@@ -27,6 +27,11 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.4.3
+
+- **Fits narrow screens:** on a narrow screen like the Galaxy Z Fold cover screen, the mic and ↶ move into the top bar so the letters use the full width, with slimmer gaps and a shorter number row. It switches by itself when you fold or unfold. Wide screens, like the Fold's inner screen, keep the usual layout.
+- **Narrow-screen settings:** a key height slider (80% to 130%) and a switch to hide the number row (digits stay on ?123).
+
 ## What's new in 1.4.2
 
 - **↶ feels like a real key:** it acts the instant you touch it, with the same buzz, click and press animation as the letters. Hold it to keep removing words.

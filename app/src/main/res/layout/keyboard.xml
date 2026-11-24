@@ -143,7 +143,9 @@
             </ScrollView>
         </FrameLayout>
 
+        <!-- On narrow screens (a foldable's cover screen) these two move up into the top bar. -->
         <LinearLayout
+            android:id="@+id/mic_col"
             android:layout_width="74dp"
             android:layout_height="match_parent"
             android:orientation="vertical">
