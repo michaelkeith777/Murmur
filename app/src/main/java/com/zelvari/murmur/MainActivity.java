@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        setupTexting();
         View convo = findViewById(R.id.open_conversation);
         if (convo != null) convo.setOnClickListener(v ->
                 startActivity(new Intent(this, ConversationActivity.class)));
@@ -173,6 +174,80 @@ public class MainActivity extends Activity {
         clipHistory.setChecked(Prefs.flag(this, Prefs.CLIP_HISTORY, true));
         shortcutsField.setText(Prefs.get(this, Prefs.SHORTCUTS, ""));
         refreshLearned(false);
+        refreshTexting();
+        if (getIntent() != null && getIntent().getBooleanExtra("setup_texting", false)) {
+            getIntent().removeExtra("setup_texting");
+            if (!MurmurNotifications.allowed(this) && textingAccess != null) {
+                View sv = findViewById(R.id.texting);
+                if (sv != null) sv.getParent().requestChildFocus(sv, sv);
+                textingAccess.performClick();
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    private Switch texting;
+    private TextView textingHint, textingAccess;
+
+    private void setupTexting() {
+        texting = findViewById(R.id.texting);
+        textingHint = findViewById(R.id.texting_hint);
+        textingAccess = findViewById(R.id.texting_access);
+        if (texting == null) return;
+        texting.setOnCheckedChangeListener((b, on) -> {
+            if (on == Translate.texting(this)) return;
+            Translate.setTexting(this, on);
+            refreshTexting();
+            // Turning it on the first time walks straight into the one-time setup.
+            if (on && !MurmurNotifications.allowed(this)) textingAccess.performClick();
+        });
+        textingAccess.setOnClickListener(v -> {
+            if (MurmurNotifications.allowed(this)) {
+                openListenerSettings();
+                return;
+            }
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Translate replies as they arrive?")
+                    .setMessage("To show their replies in " + Translate.mine(this) + ", Murmur needs to read your "
+                            + "message notifications. While texting mode is on, it reads only messages, sends "
+                            + "the text to your AI provider to translate (the same one your dictation uses), "
+                            + "and shows the translation as a notification and on the keyboard. It keeps only "
+                            + "the latest one. You can turn this off any time in the same Android screen.\n\n"
+                            + "On the next screen, turn on Murmur texting mode.")
+                    .setPositiveButton("Continue", (d, w) -> openListenerSettings())
+                    .setNegativeButton("Not now", null)
+                    .show();
+        });
+    }
+
+    private void openListenerSettings() {
+        if (android.os.Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 41);
+        }
+        try {
+            startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Open Settings › Notifications › Device and app notifications", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void refreshTexting() {
+        if (texting == null) return;
+        boolean on = Translate.texting(this);
+        texting.setChecked(on);
+        boolean allowed = MurmurNotifications.allowed(this);
+        textingAccess.setText(allowed ? "✓ Replies are translated as they arrive (tap to change)"
+                : "Translate replies as they arrive");
+        textingHint.setText("Text someone who speaks another language. Talk or type in " + Translate.mine(this)
+                + "; Murmur sends it in " + Translate.theirs(this) + " (tap ⇄ on the keyboard to translate what you "
+                + "typed). Their replies show in " + Translate.mine(this) + (allowed ? "." : " once you allow it below, "
+                + "or when you copy a message.") + " Hold 文A on the keyboard to pick their language.");
     }
 
     @Override

@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -54,6 +55,17 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/access" />
+        </service>
+
+        <!-- Texting mode: translates incoming message notifications. Only works once he allows it. -->
+        <service
+            android:name=".MurmurNotifications"
+            android:exported="true"
+            android:label="Murmur texting mode"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
 
         <service

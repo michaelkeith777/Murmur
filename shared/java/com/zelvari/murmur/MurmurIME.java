@@ -230,6 +230,12 @@ public class MurmurIME extends InputMethodService {
         readTypingOptions(info);
         closePanel();
         if (keys != null) refreshLook();
+        if (!watchingPrefs) {
+            Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefWatch);
+            watchingPrefs = true;
+        }
+        paintTranslate();
+        ui.post(() -> showIncoming(false));
         paintTranslate();
         if (keys != null && root != null) fitWidth(root.getWidth() > 0 ? root.getWidth()
                 : getResources().getDisplayMetrics().widthPixels);
@@ -322,6 +328,7 @@ public class MurmurIME extends InputMethodService {
 
     @Override
     public void onDestroy() {
+        if (watchingPrefs) Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefWatch);
         if (recording) discardRecording();
         ui.removeCallbacksAndMessages(null);
         worker.shutdownNow();
@@ -790,6 +797,11 @@ public class MurmurIME extends InputMethodService {
     }
 
     private void onStatusTapped() {
+        if (offeredWord == null && status != null && status.getText().toString().startsWith("📩")) {
+            // A long translated message doesn't fit the bar: tap to read all of it.
+            android.widget.Toast.makeText(this, status.getText(), android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
         if (offeredWord == null) return;
         String w = offeredWord;
         boolean added = Learn.addWord(this, w);
@@ -949,7 +961,9 @@ public class MurmurIME extends InputMethodService {
             translateBtn.setOnClickListener(v -> {
                 closePanel();
                 if (recording || busy) return;
-                if (!Translate.picked(this)) {
+                if (Translate.texting(this)) {
+                    translateTyped();
+                } else if (!Translate.picked(this)) {
                     showLanguagePicker();
                 } else {
                     boolean on = Translate.target(this).isEmpty();
@@ -1237,7 +1251,11 @@ public class MurmurIME extends InputMethodService {
     private void paintTranslate() {
         if (translateBtn == null) return;
         String to = Translate.target(this);
-        if (to.isEmpty()) {
+        if (Translate.texting(this)) {
+            translateBtn.setText("⇄" + Translate.code(to));
+            translateBtn.setTextColor(0xFFFFFFFF);
+            translateBtn.setBackground(pill(0xFF7C3AED, true));
+        } else if (to.isEmpty()) {
             translateBtn.setText("文A");
             translateBtn.setTextColor(tc[Theme.TEXT]);
             translateBtn.setBackground(keyBg(tc[Theme.SURFACE]));
@@ -1261,10 +1279,33 @@ public class MurmurIME extends InputMethodService {
         title.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
         toneList.addView(title);
         String current = Translate.target(this);
+        final boolean texting = Translate.texting(this);
+        toneList.addView(languageChip(texting ? "📨 Texting mode: on" : "📨 Texting mode",
+                texting ? 0xFF7C3AED : 0xFF475569, () -> {
+            Translate.setTexting(this, !texting);
+            paintTranslate();
+            if (!texting && conversationIntent() != null && !repliesAllowed()) {
+                // One-time setup: Murmur's settings walk him through letting replies translate.
+                render("Texting mode on · one quick step in Murmur so replies translate by themselves");
+                Intent i = new Intent(this, MainActivity.class);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                i.putExtra("setup_texting", true);
+                try {
+                    startActivity(i);
+                    requestHideSelf(0);
+                } catch (RuntimeException ignored) {
+                }
+                return;
+            }
+            render(!texting ? "Texting mode: write in " + Translate.mine(this) + ", it sends in "
+                    + Translate.theirs(this) + ". Replies show here in " + Translate.mine(this)
+                    : "Texting mode off");
+        }));
         if (conversationIntent() != null) {
             toneList.addView(languageChip("💬 Conversation", 0xFF7C3AED, this::openConversation));
         }
         if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
+            Translate.setTexting(this, false);
             Translate.setOn(this, false);
             paintTranslate();
             render("Translate off");
@@ -1274,7 +1315,8 @@ public class MurmurIME extends InputMethodService {
             toneList.addView(languageChip(l[1] + "  " + name, name.equals(current) ? 0xFF0EA5E9 : 0xFF334155, () -> {
                 Translate.set(this, name, true);
                 paintTranslate();
-                render("Translating to " + name + " · speak in any language");
+                render(Translate.texting(this) ? "Texting mode: sends in " + name
+                        : "Translating to " + name + " · speak in any language");
             }));
         }
         TextView close = new TextView(this);
@@ -1289,6 +1331,73 @@ public class MurmurIME extends InputMethodService {
         tonePicker.setVisibility(View.VISIBLE);
         statusRow.setVisibility(View.INVISIBLE);
         tonePicker.post(() -> tonePicker.scrollTo(0, 0));
+    }
+
+    /** Texting mode: the ⇄ button turns what's typed (or selected) into their language. */
+    private void translateTyped() {
+        InputConnection ic = getCurrentInputConnection();
+        CharSequence before = ic == null ? null : ic.getTextBeforeCursor(1, 0);
+        CharSequence sel = ic == null ? null : ic.getSelectedText(0);
+        CharSequence after = ic == null ? null : ic.getTextAfterCursor(1, 0);
+        boolean empty = (before == null || before.length() == 0) && (after == null || after.length() == 0)
+                && (sel == null || sel.length() == 0) && word.length() == 0;
+        String to = Translate.theirs(this);
+        if (empty) {
+            render("Texting in " + to + " · talk, or type in " + Translate.mine(this)
+                    + " and tap ⇄ to translate it. Hold for options");
+            return;
+        }
+        rewrite("Translate the text into " + to + " the way a native speaker would write this text "
+                + "message. Keep its tone, emoji, names, numbers and links. If it is already in " + to
+                + ", return it unchanged.", "→ " + to);
+    }
+
+    private long shownIncomingAt;
+
+    /** Whether Android lets Murmur read message notifications (the phone app's texting helper). */
+    private boolean repliesAllowed() {
+        String flat = android.provider.Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        return flat != null && flat.contains(getPackageName() + "/") && flat.contains("MurmurNotifications");
+    }
+
+    /** Shows the latest translated incoming message in the top bar, once, while it's fresh. */
+    private void showIncoming(boolean force) {
+        if (!Translate.texting(this) || recording || busy || status == null) return;
+        long at = Prefs.sp(this).getLong(Prefs.IN_AT, 0);
+        if (at == 0 || (!force && at == shownIncomingAt)) return;
+        if (System.currentTimeMillis() - at > 30 * 60_000L) return;
+        String text = Prefs.get(this, Prefs.IN_TEXT, "");
+        if (text.isEmpty()) return;
+        String from = Prefs.get(this, Prefs.IN_FROM, "");
+        shownIncomingAt = at;
+        render("📩 " + (from.isEmpty() ? "" : from + ": ") + text);
+    }
+
+    private final android.content.SharedPreferences.OnSharedPreferenceChangeListener prefWatch = (sp, key) -> {
+        if (!Prefs.IN_AT.equals(key)) return;
+        ui.post(() -> { if (isInputViewShown()) showIncoming(false); });
+    };
+    private boolean watchingPrefs;
+
+    /** Copying a message in texting mode shows it in your language (works in any app). */
+    private void translateCopied(String text) {
+        if (!Translate.texting(this) || text == null) return;
+        final String t = text.trim();
+        if (t.isEmpty() || t.length() > 1500 || t.startsWith("http")) return;
+        final String key = Prefs.get(this, Prefs.API_KEY, "");
+        if (key.isEmpty()) return;
+        final String base = stripSlash(Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL));
+        final String llmModel = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
+        final String mine = Translate.mine(this);
+        final Context ctx = this;
+        worker.execute(() -> {
+            try {
+                String out = AiClient.toMine(base, key, llmModel, t, mine);
+                if (!out.isEmpty()) Translate.saveIncoming(ctx, "Copied", out, "");
+            } catch (Exception ignored) {
+                // just a convenience; stay quiet if it fails
+            }
+        });
     }
 
     /** The two-way conversation screen, which only the phone app has (not the watch). */
@@ -1426,7 +1535,8 @@ public class MurmurIME extends InputMethodService {
     // ---- clipboard, shortcuts and look panel ----------------------------------------
 
     private void saveCurrentClip() {
-        if (!Prefs.flag(this, Prefs.CLIP_HISTORY, true)) return;
+        boolean history = Prefs.flag(this, Prefs.CLIP_HISTORY, true);
+        if (!history && !Translate.texting(this)) return;
         // Never keep what's copied while a password field is open.
         EditorInfo info = getCurrentInputEditorInfo();
         if (info != null) {
@@ -1444,7 +1554,10 @@ public class MurmurIME extends InputMethodService {
             if (d != null && d.getExtras() != null
                     && d.getExtras().getBoolean("android.content.extra.IS_SENSITIVE", false)) return;
             CharSequence t = clip.getItemAt(0).getText();
-            if (t != null) Clips.add(this, t.toString());
+            if (t != null) {
+                if (history) Clips.add(this, t.toString());
+                translateCopied(t.toString());
+            }
         } catch (RuntimeException ignored) {
             // the system may refuse clipboard access in the background
         }

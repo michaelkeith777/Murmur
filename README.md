@@ -27,6 +27,11 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.7
+
+- **Texting mode:** text someone who speaks another language. Hold 文A and tap 📨 Texting mode (or use the switch in Murmur's settings). Talk or type in English and it goes out in their language; tap ⇄ to translate what you typed before you send.
+- **Replies in your language:** allow Murmur once to read message notifications and every reply in their language shows up translated, as a notification and in the keyboard's top bar. Murmur walks you through it the first time you turn texting mode on. Copying a message also shows it translated.
+
 ## What's new in 1.6
 
 - **Conversation mode:** talk back and forth with someone in another language. Hold 文A and tap 💬 Conversation (or open it from Murmur's settings). Each person taps their own button and talks; Murmur shows and reads it out in the other person's language. Their half of the screen is upside down so it reads right across a table (⇅ turns that off).

@@ -17,7 +17,25 @@ final class Translate {
 
     /** The language dictation is translated into right now, or "" when translate is off. */
     static String target(Context c) {
+        if (texting(c)) return theirs(c);
         return Prefs.flag(c, Prefs.TRANSLATE_ON, false) ? last(c) : "";
+    }
+
+    /** Texting mode: send in their language, read their replies in yours. */
+    static boolean texting(Context c) {
+        return Prefs.flag(c, Prefs.TEXTING, false);
+    }
+
+    static void setTexting(Context c, boolean on) {
+        android.content.SharedPreferences.Editor e = Prefs.sp(c).edit().putBoolean(Prefs.TEXTING, on);
+        if (on && last(c).isEmpty()) e.putString(Prefs.TRANSLATE_TO, "Spanish");
+        e.apply();
+    }
+
+    /** Saves a translated incoming message for the keyboard's top bar. */
+    static void saveIncoming(Context c, String from, String text, String app) {
+        Prefs.sp(c).edit().putString(Prefs.IN_FROM, from).putString(Prefs.IN_TEXT, text)
+                .putString(Prefs.IN_APP, app).putLong(Prefs.IN_AT, System.currentTimeMillis()).apply();
     }
 
     /** The language picked last time, so one tap turns it back on. */

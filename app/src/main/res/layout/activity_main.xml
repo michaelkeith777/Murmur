@@ -65,6 +65,21 @@
             android:layout_marginTop="10dp"
             android:text="💬 Conversation mode: talk with someone in another language" />
 
+        <TextView style="@style/Section" android:text="TEXTING MODE" />
+        <Switch
+            android:id="@+id/texting"
+            style="@style/Label"
+            android:text="Texting mode" />
+        <TextView
+            android:id="@+id/texting_hint"
+            style="@style/Hint"
+            android:text="Text someone who speaks another language. Talk or type in your language; Murmur sends it in theirs (tap ⇄ on the keyboard to translate what you typed). Their replies show in your language. Hold 文A on the keyboard to pick their language." />
+        <Button
+            android:id="@+id/texting_access"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Translate replies as they arrive" />
+
         <TextView style="@style/Section" android:text="SMART CLEANUP" />
         <Switch
             android:id="@+id/cleanup"

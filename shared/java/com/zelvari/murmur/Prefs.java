@@ -45,6 +45,13 @@ final class Prefs {
     static final String CONVO_SPEAK = "convo_speak";
     static final String CONVO_HANDS_FREE = "convo_hands_free";
     static final String CONVO_FACE = "convo_face";
+    /** Texting mode: what he sends goes out in their language, and their replies come back in his. */
+    static final String TEXTING = "texting";
+    /** The latest incoming message, translated (set by the notification reader or a copy). */
+    static final String IN_TEXT = "in_text";
+    static final String IN_FROM = "in_from";
+    static final String IN_APP = "in_app";
+    static final String IN_AT = "in_at";
     /** Key height on narrow screens like a foldable's cover screen, in percent (80 to 130). */
     static final String NARROW_KEY_SIZE = "narrow_key_size";
     static final int NARROW_KEY_SIZE_DEFAULT = 110;
