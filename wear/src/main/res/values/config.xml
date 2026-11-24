@@ -6,4 +6,10 @@
     <item name="k_comma" type="id" />
     <item name="k_period" type="id" />
     <item name="k_switch" type="id" />
+    <!-- Phone-only parts of the keyboard: the typing keys and the tone picker. -->
+    <item name="keys" type="id" />
+    <item name="tone" type="id" />
+    <item name="tone_picker" type="id" />
+    <item name="tone_list" type="id" />
+    <item name="status_row" type="id" />
 </resources>

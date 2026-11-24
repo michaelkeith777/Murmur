@@ -15,6 +15,20 @@ final class Prefs {
     static final String LANGUAGE = "language";
     static final String AUTO_START = "auto_start";
     static final String AUTO_RETURN = "auto_return";
+    /** Tone the cleanup pass writes in; see {@link Tones}. */
+    static final String TONE = "tone";
+    /** Spoken edits such as "make that shorter" act on the last dictation. */
+    static final String COMMANDS = "commands";
+    /** Learn spellings from the fixes the user makes to dictated text. */
+    static final String LEARN = "learn";
+    /** Learned corrections, one "heard\tmeant" pair per line, newest last. */
+    static final String LEARNED = "learned";
+    /** Learn how the user writes from their recent dictations. */
+    static final String LEARN_STYLE = "learn_style";
+    /** Recent finished dictations, one per line, newest last: the user's own voice. */
+    static final String SAMPLES = "samples";
+    /** Settings version, for one-time upgrades of stored defaults. */
+    static final String SCHEMA = "schema";
     /** Time (ms) the one-tap trigger last asked the keyboard to listen as soon as it opens. */
     static final String ONE_SHOT_AT = "one_shot_at";
     /** Keyboard that was active before the one-tap trigger switched to Murmur. */
@@ -22,7 +36,9 @@ final class Prefs {
     static final long ONE_SHOT_WINDOW_MS = 8000;
 
     static final String DEF_BASE_URL = "https://api.groq.com/openai/v1";
-    static final String DEF_STT_MODEL = "whisper-large-v3-turbo";
+    static final String DEF_STT_MODEL = "whisper-large-v3";
+    /** The faster, less accurate model 1.0 and 1.1 used by default. */
+    static final String OLD_STT_MODEL = "whisper-large-v3-turbo";
     static final String DEF_LLM_MODEL = "openai/gpt-oss-120b";
 
     private Prefs() {}
@@ -41,5 +57,32 @@ final class Prefs {
 
     static boolean flag(Context c, String key, boolean def) {
         return sp(c).getBoolean(key, def);
+    }
+
+    /**
+     * One-time upgrades. 1.2 moves people still on the old default speech model (the settings
+     * screen saved the default, so it looks like a choice) to the more accurate full model.
+     */
+    static void migrate(Context c) {
+        SharedPreferences p = sp(c);
+        if (p.getInt(SCHEMA, 0) >= 2) return;
+        SharedPreferences.Editor e = p.edit();
+        if (OLD_STT_MODEL.equals(p.getString(STT_MODEL, "").trim())) e.putString(STT_MODEL, DEF_STT_MODEL);
+        e.putInt(SCHEMA, 2).apply();
+    }
+
+    /**
+     * Language for speech-to-text. Blank means the phone's own language, which is far more
+     * reliable on short clips than auto-detect; "auto" asks the server to guess.
+     */
+    static String language(Context c) {
+        String v = get(c, LANGUAGE, "").toLowerCase(java.util.Locale.ROOT);
+        if (v.equals("auto")) return "";
+        if (!v.isEmpty()) return v;
+        String phone = java.util.Locale.getDefault().getLanguage();
+        if ("iw".equals(phone)) phone = "he";
+        if ("in".equals(phone)) phone = "id";
+        if ("ji".equals(phone)) phone = "yi";
+        return phone != null && phone.length() == 2 ? phone : "";
     }
 }

@@ -58,31 +58,80 @@
             android:inputType="textMultiLine|textCapSentences"
             android:minLines="3" />
 
-        <TextView style="@style/Section" android:text="AI CLEANUP" />
+        <TextView style="@style/Section" android:text="SMART CLEANUP" />
         <Switch
             android:id="@+id/cleanup"
             style="@style/Label"
-            android:text="Polish my speech (remove ums, fix punctuation, apply self-corrections)" />
+            android:text="Smart cleanup: remove ums and filler, fix grammar and punctuation, apply self-corrections" />
+
+        <TextView style="@style/Label" android:text="Tone" />
+        <TextView
+            style="@style/Hint"
+            android:text="Also on the keyboard: tap the tone chip to pick, hold it to flip between Professional and Casual. Auto fits the app you're typing in." />
+        <Spinner
+            android:id="@+id/tone"
+            style="@style/Field"
+            android:popupBackground="@color/surface" />
 
         <TextView style="@style/Label" android:text="Your style instructions (optional)" />
         <EditText
             android:id="@+id/style"
             style="@style/Field"
             android:gravity="top"
-            android:hint="e.g. Keep it casual. No exclamation marks."
+            android:hint="e.g. No exclamation marks. Sign off with -M."
             android:inputType="textMultiLine|textCapSentences"
             android:minLines="2" />
 
-        <TextView style="@style/Label" android:text="Names and words to get right (optional)" />
+        <Switch
+            android:id="@+id/commands"
+            style="@style/Label"
+            android:text="Voice commands" />
+        <TextView
+            style="@style/Hint"
+            android:text="Right after dictating, tap the mic and say &quot;make that shorter&quot;, &quot;translate that to Spanish&quot;, &quot;make it more professional&quot;, &quot;add some emojis&quot; or &quot;scratch that&quot;. Start with &quot;Murmur,&quot; to ask for anything else. Select text first to edit that instead. ↶ brings back the original." />
+
+        <TextView style="@style/Section" android:text="YOUR VOCABULARY" />
+        <TextView style="@style/Label" android:text="Names and words to get right" />
+        <TextView
+            style="@style/Hint"
+            android:text="Tip: select a word in any app while the Murmur keyboard is open, then tap the message above the keys to add it here." />
         <EditText
             android:id="@+id/vocab"
             style="@style/Field"
             android:gravity="top"
-            android:hint="Comma-separated: product names, people, jargon"
+            android:hint="Comma-separated: product names, people, slang, work terms"
             android:inputType="textMultiLine"
             android:minLines="2" />
 
-        <TextView style="@style/Label" android:text="Language code (blank = auto-detect)" />
+        <Switch
+            android:id="@+id/learn"
+            style="@style/Label"
+            android:text="Learn from my fixes (when I correct a word Murmur typed, remember it)" />
+        <TextView style="@style/Label" android:text="What Murmur learned (edit or delete lines)" />
+        <EditText
+            android:id="@+id/learned"
+            style="@style/Field"
+            android:gravity="top"
+            android:hint="Nothing yet. Fix a name Murmur gets wrong and it shows up here, like: zelvary → Zelvari"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:minLines="2" />
+
+        <Switch
+            android:id="@+id/learn_style"
+            style="@style/Label"
+            android:text="Learn how I write, so cleanup sounds like me" />
+        <TextView android:id="@+id/samples_info" style="@style/Hint" />
+        <TextView
+            android:id="@+id/clear_learned"
+            style="@style/Step"
+            android:gravity="center"
+            android:text="Clear what Murmur learned" />
+        <TextView
+            style="@style/Hint"
+            android:text="All of this stays on your phone. It is sent to your AI provider only with each dictation, to spell and phrase it like you." />
+
+        <TextView style="@style/Label" android:text="Language code" />
+        <TextView style="@style/Hint" android:text="Blank uses your phone's language, which is the most accurate. Type auto to let it guess, or a code like es." />
         <EditText
             android:id="@+id/language"
             style="@style/Field"

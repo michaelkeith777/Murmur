@@ -2,4 +2,11 @@
 <resources>
     <bool name="fill_screen">false</bool>
     <item name="panel" type="id" />
+    <!-- The phone keyboard builds these keys in code; the ids stay for the shared keyboard code. -->
+    <item name="k_space" type="id" />
+    <item name="k_comma" type="id" />
+    <item name="k_period" type="id" />
+    <item name="k_switch" type="id" />
+    <item name="k_del" type="id" />
+    <item name="k_enter" type="id" />
 </resources>

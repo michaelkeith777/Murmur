@@ -10,7 +10,11 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.inputmethod.InputMethodInfo;
 import android.view.inputmethod.InputMethodManager;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -19,12 +23,21 @@ import android.widget.Toast;
 public class MainActivity extends Activity {
     private TextView stepMic, stepEnable, stepPick, stepOneTap;
     private EditText apiKey, style, vocab, language, baseUrl, sttModel, llmModel;
-    private Switch cleanup, autoStart, autoReturn;
+    private Switch cleanup, autoStart, autoReturn, commands, learn, learnStyle;
+    private Spinner tone;
+    private EditText learned;
+    private TextView samplesInfo;
+    /**
+     * What the word list and learned list said when last shown. The keyboard adds to both
+     * while this screen may be open, so they are only saved when the user changed them here.
+     */
+    private String shownVocab = "", shownLearned = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        Prefs.migrate(this);
 
         stepMic = findViewById(R.id.step_mic);
         stepEnable = findViewById(R.id.step_enable);
@@ -40,6 +53,37 @@ public class MainActivity extends Activity {
         cleanup = findViewById(R.id.cleanup);
         autoStart = findViewById(R.id.auto_start);
         autoReturn = findViewById(R.id.auto_return);
+        commands = findViewById(R.id.commands);
+        learn = findViewById(R.id.learn);
+        learnStyle = findViewById(R.id.learn_style);
+        learned = findViewById(R.id.learned);
+        samplesInfo = findViewById(R.id.samples_info);
+        tone = findViewById(R.id.tone);
+
+        String[] toneNames = new String[Tones.IDS.length];
+        for (int i = 0; i < toneNames.length; i++) {
+            toneNames[i] = Tones.EMOJI[i] + "  " + Tones.LABELS[i];
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, toneNames);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        tone.setAdapter(adapter);
+        tone.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                // Saved right away: the keyboard's tone chip changes the same setting.
+                Tones.set(MainActivity.this, Tones.IDS[position]);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+
+        findViewById(R.id.clear_learned).setOnClickListener(v -> {
+            Learn.clearLearned(this);
+            refreshLearned(true);
+            Toast.makeText(this, "Cleared what Murmur learned. Your own word list stays.", Toast.LENGTH_LONG).show();
+        });
 
         stepMic.setOnClickListener(v -> {
             if (!micGranted()) {
@@ -73,13 +117,18 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refreshSteps();
+        tone.setSelection(Tones.index(Tones.current(this)));
+        refreshLearned(false);
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         // The keyboard picker is a dialog; refresh once it closes.
-        if (hasFocus) refreshSteps();
+        if (hasFocus) {
+            refreshSteps();
+            refreshLearned(false);
+        }
     }
 
     @Override
@@ -103,7 +152,6 @@ public class MainActivity extends Activity {
     private void load() {
         apiKey.setText(Prefs.get(this, Prefs.API_KEY, ""));
         style.setText(Prefs.get(this, Prefs.STYLE, ""));
-        vocab.setText(Prefs.get(this, Prefs.VOCAB, ""));
         language.setText(Prefs.get(this, Prefs.LANGUAGE, ""));
         baseUrl.setText(Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL));
         sttModel.setText(Prefs.get(this, Prefs.STT_MODEL, Prefs.DEF_STT_MODEL));
@@ -111,13 +159,33 @@ public class MainActivity extends Activity {
         cleanup.setChecked(Prefs.flag(this, Prefs.CLEANUP, true));
         autoStart.setChecked(Prefs.flag(this, Prefs.AUTO_START, false));
         autoReturn.setChecked(Prefs.flag(this, Prefs.AUTO_RETURN, false));
+        commands.setChecked(Prefs.flag(this, Prefs.COMMANDS, true));
+        learn.setChecked(Prefs.flag(this, Prefs.LEARN, true));
+        learnStyle.setChecked(Prefs.flag(this, Prefs.LEARN_STYLE, true));
+        refreshLearned(true);
+    }
+
+    /** Shows the latest word list and learned fixes, unless the user is editing them here. */
+    private void refreshLearned(boolean force) {
+        String v = Prefs.get(this, Prefs.VOCAB, "");
+        if (force || text(vocab).equals(shownVocab)) {
+            vocab.setText(v);
+            shownVocab = v;
+        }
+        String l = Learn.display(Learn.learned(this));
+        if (force || text(learned).equals(shownLearned)) {
+            learned.setText(l);
+            shownLearned = l;
+        }
+        int n = Learn.samples(this).size();
+        samplesInfo.setText(n == 0 ? "No writing samples yet. They build up as you dictate."
+                : "Learning from your last " + n + " dictation" + (n == 1 ? "" : "s") + ".");
     }
 
     private void save() {
         Prefs.sp(this).edit()
                 .putString(Prefs.API_KEY, text(apiKey))
                 .putString(Prefs.STYLE, text(style))
-                .putString(Prefs.VOCAB, text(vocab))
                 .putString(Prefs.LANGUAGE, text(language).toLowerCase())
                 .putString(Prefs.BASE_URL, text(baseUrl))
                 .putString(Prefs.STT_MODEL, text(sttModel))
@@ -125,7 +193,20 @@ public class MainActivity extends Activity {
                 .putBoolean(Prefs.CLEANUP, cleanup.isChecked())
                 .putBoolean(Prefs.AUTO_START, autoStart.isChecked())
                 .putBoolean(Prefs.AUTO_RETURN, autoReturn.isChecked())
+                .putBoolean(Prefs.COMMANDS, commands.isChecked())
+                .putBoolean(Prefs.LEARN, learn.isChecked())
+                .putBoolean(Prefs.LEARN_STYLE, learnStyle.isChecked())
                 .apply();
+        // Only overwrite the lists if they were edited here, so words the keyboard just
+        // learned are not lost.
+        if (!text(vocab).equals(shownVocab)) {
+            Prefs.sp(this).edit().putString(Prefs.VOCAB, text(vocab)).apply();
+            shownVocab = text(vocab);
+        }
+        if (!text(learned).equals(shownLearned)) {
+            Learn.save(this, Learn.parse(text(learned)));
+            shownLearned = text(learned);
+        }
     }
 
     private static String text(EditText e) {

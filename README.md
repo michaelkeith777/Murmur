@@ -22,8 +22,27 @@ Or from a terminal: `gradlew assembleDebug` → `app/build/outputs/apk/debug/app
 3. In any app, switch to the Murmur keyboard (the keyboard icon in the nav bar, or
    long-press space on Gboard), tap the mic and talk.
 
-Keys on the keyboard: ⌨ back to your regular keyboard (long-press for the picker),
-↶ undo the last dictation, plus comma, space, period, backspace and enter.
+The keyboard is a full typing keyboard (number row, letters, ?123 symbols, shift with
+double-tap caps lock, auto-capitals, double-space for a period) with a big mic button on
+the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
+last dictation.
+
+## What's new in 1.2
+
+- **Tone chip** (top left of the keyboard): Auto, Professional, Casual, Hype, Short & sweet,
+  Pirate, Shakespeare, Flirty, Kind. Tap to pick, hold to flip Professional ↔ Casual.
+  The mic and enter key take the tone's colour.
+- **Smart cleanup**: fillers and stutters removed, grammar fixed, written in the chosen tone.
+- **Voice commands**: right after dictating, tap the mic and say "make that shorter",
+  "translate that to Spanish", "make it more professional", "add some emojis" or
+  "scratch that". Start with "Murmur," for anything else. Select text to edit that instead.
+- **Learns you**: when you fix a name or term Murmur typed, it remembers the fix and spells
+  it right next time. It also keeps a few of your recent dictations so cleanup sounds like
+  you. Select a word and tap the message above the keys to add it to your word list.
+  Everything learned is on the phone and can be edited or cleared in the app.
+- **More accurate by default**: the full `whisper-large-v3` model (1.1 used the faster
+  turbo model; 1.2 switches anyone still on it), and your phone's language instead of
+  auto-detect.
 
 ## One-tap dictation (phone)
 
@@ -62,13 +81,15 @@ Other settings can be sent the same way with `-e vocab "…"`, `-e style "…"`,
 
 ## Settings
 
-- **Polish my speech**: turn off to get the raw transcript.
+- **Smart cleanup**: turn off to get the raw transcript (a tone other than Auto still rewrites).
+- **Tone**: same setting as the keyboard's tone chip.
+- **Voice commands**, **Learn from my fixes**, **Learn how I write**, **Clear what Murmur learned**.
 - **Style instructions**: free text passed to the cleanup model.
 - **Names and words**: custom vocabulary so product names and jargon are spelled right.
 - **Start listening when the keyboard opens** + **Switch back after inserting**:
   together these make it a one-tap flow from your regular keyboard.
 - **Advanced**: any OpenAI-compatible API works; change the base URL and model names.
-  Defaults: `https://api.groq.com/openai/v1`, `whisper-large-v3-turbo`, `openai/gpt-oss-120b`.
+  Defaults: `https://api.groq.com/openai/v1`, `whisper-large-v3`, `openai/gpt-oss-120b`.
 
 ## Privacy
 
