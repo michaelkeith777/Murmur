@@ -14,6 +14,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.inputmethodservice.InputMethodService;
+import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Handler;
@@ -170,7 +171,8 @@ public class MurmurIME extends InputMethodService {
         onClick(root, R.id.k_comma, v -> type(","));
         onClick(root, R.id.k_period, v -> type("."));
         onClick(root, R.id.k_enter, v -> pressEnter());
-        onClick(root, R.id.k_undo, v -> undoLast());
+        View undoKey = root.findViewById(R.id.k_undo);
+        if (undoKey != null) setupUndo(undoKey);
 
         View switcher = root.findViewById(R.id.k_switch);
         if (switcher != null) setupSwitcher(switcher);
@@ -200,6 +202,11 @@ public class MurmurIME extends InputMethodService {
         super.onStartInputView(info, restarting);
         selStart = info.initialSelStart;
         selEnd = info.initialSelEnd;
+        if (!restarting) {
+            lastInsertedLength = 0;
+            lastText = null;
+            undoRestore = null;
+        }
         String learned = learnFromFixes(info);
         if (word.length() > 0) {
             InputConnection ic = getCurrentInputConnection();
@@ -298,6 +305,7 @@ public class MurmurIME extends InputMethodService {
         learnFromFixes(getCurrentInputEditorInfo());
         super.onFinishInputView(finishingInput);
         ui.removeCallbacks(repeatDelete);
+        ui.removeCallbacks(repeatUndo);
         // Never keep the microphone open once the keyboard is hidden.
         if (recording) cancelEverything(IDLE_HINT);
     }
@@ -645,18 +653,25 @@ public class MurmurIME extends InputMethodService {
             return;
         }
         if (word.length() > 0) {
-            ic.setComposingText("", 1);
-            ic.finishComposingText();
+            String w = word.toString();
+            String before = textBefore(ic);
+            ic.commitText("", 1);
             resetWord();
             hideStrip();
             clearRevert();
+            // Some apps ignore an empty word update; if the text didn't change, press delete instead.
+            String now = textBefore(ic);
+            if (before != null && before.equals(now) && before.endsWith(w)) pressDelete(ic, w.length());
+            autoSpace = false;
             updateAutoShift();
-            render("Removed");
+            render("Removed “" + w + "”");
             return;
         }
-        CharSequence before = ic.getTextBeforeCursor(64, 0);
-        if (before == null || before.length() == 0) return;
-        String b = before.toString();
+        String b = textBefore(ic);
+        if (b == null || b.isEmpty()) {
+            render("Nothing to undo");
+            return;
+        }
         int end = b.length();
         while (end > 0 && Character.isWhitespace(b.charAt(end - 1))) end--;
         int start = end;
@@ -669,12 +684,33 @@ public class MurmurIME extends InputMethodService {
             while (start > 0 && !Character.isWhitespace(b.charAt(start - 1))) start--;
         }
         int n = b.length() - start;
-        if (n == 0) return;
+        if (n == 0) {
+            render("Nothing to undo");
+            return;
+        }
+        String gone = b.substring(start).trim();
         ic.deleteSurroundingText(n, 0);
+        // Some apps ignore deleteSurroundingText; press delete if nothing changed.
+        String now = textBefore(ic);
+        if (b.equals(now)) pressDelete(ic, n);
         clearRevert();
         autoSpace = false;
         updateAutoShift();
-        render("Removed");
+        render(gone.isEmpty() ? "Removed" : "Removed “" + gone + "”");
+    }
+
+    /** Up to 64 characters before the cursor, or null if the app won't say. */
+    private String textBefore(InputConnection ic) {
+        CharSequence before = ic.getTextBeforeCursor(64, 0);
+        if (before != null) return before.toString();
+        ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
+        if (et == null || et.text == null) return null;
+        int at = Math.max(0, Math.min(et.selectionStart, et.text.length()));
+        return et.text.subSequence(Math.max(0, at - 64), at).toString();
+    }
+
+    private void pressDelete(InputConnection ic, int n) {
+        for (int i = 0; i < n; i++) sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL);
     }
 
     // ---- personal vocabulary -------------------------------------------------------
@@ -1707,6 +1743,12 @@ public class MurmurIME extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         autoSpace = false;
+        if (word.length() > 0 && !wordShowing(ic)) {
+            // The app dropped or kept the word without telling us: delete like normal text.
+            ic.finishComposingText();
+            resetWord();
+            hideStrip();
+        }
         if (word.length() > 0) {
             if (wordSwiped) {
                 // A swiped word goes in one piece, so it comes out in one piece.
@@ -1717,8 +1759,7 @@ public class MurmurIME extends InputMethodService {
                 word.delete(start, end);
             }
             if (word.length() == 0) {
-                ic.setComposingText("", 1);
-                ic.finishComposingText();
+                ic.commitText("", 1);
                 resetWord();
                 hideStrip();
                 updateAutoShift();
@@ -1753,6 +1794,12 @@ public class MurmurIME extends InputMethodService {
         }
         clearRevert();
         deleteBackward();
+    }
+
+    /** True unless the text before the cursor clearly isn't the word being typed. */
+    private boolean wordShowing(InputConnection ic) {
+        CharSequence before = ic.getTextBeforeCursor(word.length(), 0);
+        return before == null || before.toString().equals(word.toString());
     }
 
     private void onGestureStart() {
@@ -2069,6 +2116,50 @@ public class MurmurIME extends InputMethodService {
             InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) imm.showInputMethodPicker();
             return true;
+        });
+    }
+
+    /** Repeats ↶ while held: one word at a time, a little faster the longer it's held. */
+    private int undoRepeats;
+    private final Runnable repeatUndo = new Runnable() {
+        @Override
+        public void run() {
+            undoLast();
+            undoRepeats++;
+            ui.postDelayed(this, undoRepeats < 3 ? 220 : 130);
+        }
+    };
+
+    /** ↶ acts the moment it's touched, with the same buzz and click as the letter keys. */
+    private void setupUndo(View undo) {
+        undo.setOnTouchListener((v, e) -> {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    v.drawableHotspotChanged(e.getX(), e.getY());
+                    v.setPressed(true);
+                    v.animate().cancel();
+                    v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(60).start();
+                    if (Prefs.flag(this, Prefs.KEY_VIBRATE, true)) {
+                        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    }
+                    if (Prefs.flag(this, Prefs.KEY_SOUND, false)) {
+                        AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                        if (am != null) am.playSoundEffect(AudioManager.FX_KEYPRESS_DELETE, -1);
+                    }
+                    undoLast();
+                    undoRepeats = 0;
+                    ui.removeCallbacks(repeatUndo);
+                    ui.postDelayed(repeatUndo, 450);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.setPressed(false);
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(90).start();
+                    ui.removeCallbacks(repeatUndo);
+                    return true;
+                default:
+                    return true;
+            }
         });
     }
 
