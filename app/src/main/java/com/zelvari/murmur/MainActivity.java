@@ -175,6 +175,7 @@ public class MainActivity extends Activity {
         shortcutsField.setText(Prefs.get(this, Prefs.SHORTCUTS, ""));
         refreshLearned(false);
         refreshTexting();
+        if (textingStatus != null) textingStatus.post(this::checkBlocked);
         if (getIntent() != null && getIntent().getBooleanExtra("setup_texting", false)) {
             getIntent().removeExtra("setup_texting");
             if (textingAccess != null) {
@@ -194,6 +195,41 @@ public class MainActivity extends Activity {
     private Switch texting;
     private TextView textingHint, textingAccess, textingOpenChat, textingStatus;
     private boolean openSettingsAfterAsk;
+    /** Which access screen he was sent to, so coming back without it on can explain why. */
+    private String sentTo;
+
+    /**
+     * Android blocks notification and accessibility access for apps installed from a file until
+     * he allows "restricted settings" in the app's info page. Coming back without access usually
+     * means that block, so say so and offer the page.
+     */
+    private void checkBlocked() {
+        String step = sentTo;
+        sentTo = null;
+        if (step == null) return;
+        boolean ok = "notes".equals(step) ? MurmurNotifications.allowed(this) : MurmurChatReader.enabled(this);
+        if (ok) {
+            if ("notes".equals(step) && !MurmurChatReader.enabled(this)) textingOpenChat.performClick();
+            return;
+        }
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Did Android say \"App was denied access\"?")
+                .setMessage("Android blocks this for apps installed from a file, until you allow it once:\n\n"
+                        + "1. Tap Open App info below.\n"
+                        + "2. Tap ⋮ in the top corner, then Allow restricted settings, and confirm.\n"
+                        + "3. Come back here and tap Step " + ("notes".equals(step) ? "1" : "2") + " again.\n\n"
+                        + "If you don't see Allow restricted settings, try turning the switch on once first so "
+                        + "Android shows the warning, then look again.")
+                .setPositiveButton("Open App info", (d, w) -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:" + getPackageName())));
+                    } catch (RuntimeException ignored) {
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
 
     private void setupTexting() {
         texting = findViewById(R.id.texting);
@@ -236,6 +272,7 @@ public class MainActivity extends Activity {
                         + "allow restricted settings in Murmur's App info first.")
                 .setPositiveButton("Continue", (d, w) -> {
                     try {
+                        sentTo = MurmurChatReader.enabled(this) ? null : "chats";
                         startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
                     } catch (RuntimeException ignored) {
                     }
@@ -264,6 +301,7 @@ public class MainActivity extends Activity {
             return;
         }
         try {
+            sentTo = MurmurNotifications.allowed(this) ? null : "notes";
             startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
         } catch (RuntimeException e) {
             Toast.makeText(this, "Open Settings › Notifications › Device and app notifications", Toast.LENGTH_LONG).show();
