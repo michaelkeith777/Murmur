@@ -134,7 +134,7 @@
         <TextView style="@style/Label" android:text="Shortcuts" />
         <TextView
             style="@style/Hint"
-            android:text="One per line, like  myemail = you@example.com. Type the code on the keyboard and tap the phrase above the keys." />
+            android:text="One per line, like  addr = 123 Main St. Then type the code on the keyboard and press space, and the phrase types itself. Backspace right after puts the code back." />
         <EditText
             android:id="@+id/shortcuts"
             style="@style/Field"

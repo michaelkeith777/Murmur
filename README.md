@@ -27,6 +27,11 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.4.1
+
+- **Shortcuts work on space:** type a code like `addr` and press space, and the saved phrase replaces it. Backspace right after brings the code back. Codes can hold numbers, and lines can use `=`, `:`, `->` or just a space.
+- **↶ undoes typing too:** with no dictation to take back, it removes the last typed word.
+
 ## What's new in 1.4
 
 - **Rewrite button (✍️).** Select text in any app, or select nothing to use the whole message,

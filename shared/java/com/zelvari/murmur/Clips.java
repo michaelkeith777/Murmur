@@ -128,17 +128,43 @@ final class Clips {
         return parseShortcuts(Prefs.get(c, Prefs.SHORTCUTS, ""));
     }
 
+    /**
+     * Reads shortcuts written almost any way: "code = phrase", "code: phrase", "code - phrase",
+     * "code → phrase" or just "code phrase". Codes are matched without case or spaces.
+     */
     static LinkedHashMap<String, String> parseShortcuts(String stored) {
         LinkedHashMap<String, String> out = new LinkedHashMap<>();
-        for (String line : stored.split("\\n")) {
-            int eq = line.indexOf('=');
-            if (eq <= 0) continue;
-            String code = line.substring(0, eq).trim().toLowerCase(Locale.ROOT);
-            String phrase = line.substring(eq + 1).trim().replace("\\n", "\n");
-            if (code.isEmpty() || phrase.isEmpty() || code.contains(" ")) continue;
+        for (String raw : stored.split("\\n")) {
+            String line = raw.trim();
+            if (line.isEmpty()) continue;
+            int at = -1, len = 1;
+            String[] seps = {"=", "→", "->", ":", " - "};
+            for (String sep : seps) {
+                int i = line.indexOf(sep);
+                if (i > 0 && (at < 0 || i < at)) {
+                    at = i;
+                    len = sep.length();
+                }
+            }
+            // A code is one or two words; anything longer means the separator was in the phrase.
+            if (at > 0 && line.substring(0, at).trim().split("\\s+").length > 2) at = -1;
+            if (at < 0) {
+                int sp = line.indexOf(' ');
+                if (sp <= 0) continue;
+                at = sp;
+                len = 1;
+            }
+            String code = codeOf(line.substring(0, at));
+            String phrase = line.substring(at + len).trim().replace("\\n", "\n");
+            if (code.isEmpty() || phrase.isEmpty()) continue;
             out.put(code, phrase);
         }
         return out;
+    }
+
+    /** How a code is matched: lower case, no spaces. */
+    static String codeOf(String s) {
+        return s.trim().replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
     }
 
     static String displayShortcuts(Map<String, String> map) {

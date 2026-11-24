@@ -609,7 +609,11 @@ public class MurmurIME extends InputMethodService {
 
     private void undoLast() {
         InputConnection ic = getCurrentInputConnection();
-        if (ic == null || lastInsertedLength == 0) return;
+        if (ic == null) return;
+        if (lastInsertedLength == 0) {
+            undoTyped(ic);
+            return;
+        }
         if (undoRestore != null && lastText != null) {
             CharSequence before = ic.getTextBeforeCursor(lastText.length(), 0);
             if (before != null && before.toString().equals(lastText)) {
@@ -629,6 +633,47 @@ public class MurmurIME extends InputMethodService {
         lastText = null;
         undoRestore = null;
         learnText = null;
+        render("Removed");
+    }
+
+    /** With no dictation to take back, ↶ removes the last typed word instead. */
+    private void undoTyped(InputConnection ic) {
+        CharSequence sel = ic.getSelectedText(0);
+        if (sel != null && sel.length() > 0) {
+            ic.commitText("", 1);
+            render("Removed");
+            return;
+        }
+        if (word.length() > 0) {
+            ic.setComposingText("", 1);
+            ic.finishComposingText();
+            resetWord();
+            hideStrip();
+            clearRevert();
+            updateAutoShift();
+            render("Removed");
+            return;
+        }
+        CharSequence before = ic.getTextBeforeCursor(64, 0);
+        if (before == null || before.length() == 0) return;
+        String b = before.toString();
+        int end = b.length();
+        while (end > 0 && Character.isWhitespace(b.charAt(end - 1))) end--;
+        int start = end;
+        if (start > 0 && !Character.isLetterOrDigit(b.charAt(start - 1))
+                && !Character.isWhitespace(b.charAt(start - 1))) {
+            // A run of punctuation or an emoji goes on its own.
+            while (start > 0 && !Character.isLetterOrDigit(b.charAt(start - 1))
+                    && !Character.isWhitespace(b.charAt(start - 1))) start--;
+        } else {
+            while (start > 0 && !Character.isWhitespace(b.charAt(start - 1))) start--;
+        }
+        int n = b.length() - start;
+        if (n == 0) return;
+        ic.deleteSurroundingText(n, 0);
+        clearRevert();
+        autoSpace = false;
+        updateAutoShift();
         render("Removed");
     }
 
@@ -1628,7 +1673,7 @@ public class MurmurIME extends InputMethodService {
         String typed = word.toString();
         String out = typed;
         boolean keep = typed.equals(keepAsTyped);
-        boolean code = shortcuts.containsKey(typed.toLowerCase(Locale.ROOT));
+        boolean code = shortcuts.containsKey(Clips.codeOf(typed));
         if (correct && autocorrectOn && !wordSwiped && !wordNoCorrect && !keep && !code && dict != null) {
             Corrector.Result r = resultFor(typed);
             if (r != null && r.autocorrect != null) out = r.autocorrect;
@@ -1691,6 +1736,7 @@ public class MurmurIME extends InputMethodService {
             CharSequence before = ic.getTextBeforeCursor(fixed.length(), 0);
             if (before != null && before.toString().equals(fixed)) {
                 String typed = revertTo;
+                if (shortcuts.containsKey(Clips.codeOf(typed))) noExpand = Clips.codeOf(typed);
                 clearRevert();
                 ic.beginBatchEdit();
                 ic.deleteSurroundingText(fixed.length(), 0);
@@ -1791,7 +1837,7 @@ public class MurmurIME extends InputMethodService {
     private void showTypedStrip(String typed, Corrector.Result r) {
         if (recording || busy) return;
         int n = 0;
-        String phrase = shortcuts.get(typed.toLowerCase(Locale.ROOT));
+        String phrase = shortcuts.get(Clips.codeOf(typed));
         if (phrase != null) {
             // A shortcut code: offer its phrase first and never "fix" the code.
             setCell(n++, "⚡ " + phrase.replace('\n', ' '), phrase, CELL_SHORTCUT, true);
@@ -1920,6 +1966,10 @@ public class MurmurIME extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         boolean hadWord = word.length() > 0;
+        if (expandShortcut(ic)) {
+            lastSpaceTap = now;
+            return;
+        }
         if (hadWord) {
             clearRevert();
             finishWord(true);
@@ -1948,6 +1998,45 @@ public class MurmurIME extends InputMethodService {
         autoSpace = false;
         lastInsertedLength = 0;
         updateAutoShift();
+    }
+
+    /** A code the user just took back with backspace, so the next space leaves it alone. */
+    private String noExpand;
+
+    /**
+     * When the text just before the cursor is a shortcut code, swaps it for its phrase
+     * plus a space. Backspace right after puts the code back.
+     */
+    private boolean expandShortcut(InputConnection ic) {
+        if (shortcuts.isEmpty()) return false;
+        CharSequence before = ic.getTextBeforeCursor(64, 0);
+        if (before == null || before.length() == 0) return false;
+        String b = before.toString();
+        int start = b.length();
+        while (start > 0 && !Character.isWhitespace(b.charAt(start - 1))) start--;
+        String token = b.substring(start);
+        if (token.isEmpty()) return false;
+        String code = Clips.codeOf(token);
+        String skip = noExpand;
+        noExpand = null;
+        if (code.equals(skip)) return false;
+        String phrase = shortcuts.get(code);
+        if (phrase == null || phrase.isEmpty()) return false;
+        ic.beginBatchEdit();
+        ic.finishComposingText();
+        ic.deleteSurroundingText(token.length(), 0);
+        ic.commitText(phrase + " ", 1);
+        ic.endBatchEdit();
+        resetWord();
+        keepAsTyped = null;
+        hideStrip();
+        revertFrom = phrase;
+        revertTo = token;
+        revertSep = " ";
+        autoSpace = false;
+        lastInsertedLength = 0;
+        updateAutoShift();
+        return true;
     }
 
     /** Capitalizes the next letter at the start of a sentence, when the field wants that. */

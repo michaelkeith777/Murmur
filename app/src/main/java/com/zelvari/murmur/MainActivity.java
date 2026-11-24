@@ -132,7 +132,9 @@ public class MainActivity extends Activity {
         });
         findViewById(R.id.save).setOnClickListener(v -> {
             save();
-            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+            int n = Clips.shortcuts(this).size();
+            Toast.makeText(this, n == 0 ? "Saved" : "Saved, with " + n + " shortcut" + (n == 1 ? "" : "s"),
+                    Toast.LENGTH_SHORT).show();
         });
 
         load();
@@ -145,7 +147,7 @@ public class MainActivity extends Activity {
         tone.setSelection(Tones.index(Tones.current(this)));
         theme.setSelection(Theme.index(Theme.current(this)));
         clipHistory.setChecked(Prefs.flag(this, Prefs.CLIP_HISTORY, true));
-        shortcutsField.setText(Clips.displayShortcuts(Clips.shortcuts(this)));
+        shortcutsField.setText(Prefs.get(this, Prefs.SHORTCUTS, ""));
         refreshLearned(false);
     }
 
@@ -233,7 +235,7 @@ public class MainActivity extends Activity {
                 .putBoolean(Prefs.KEY_VIBRATE, keyVibrate.isChecked())
                 .putBoolean(Prefs.KEY_SOUND, keySound.isChecked())
                 .putBoolean(Prefs.CLIP_HISTORY, clipHistory.isChecked())
-                .putString(Prefs.SHORTCUTS, Clips.displayShortcuts(Clips.parseShortcuts(text(shortcutsField))))
+                .putString(Prefs.SHORTCUTS, text(shortcutsField))
                 .apply();
         if (!clipHistory.isChecked()) Prefs.sp(this).edit().remove(Prefs.CLIPS).apply();
         // Only overwrite the lists if they were edited here, so words the keyboard just
