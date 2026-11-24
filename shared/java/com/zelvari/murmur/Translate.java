@@ -32,6 +32,29 @@ final class Translate {
         e.apply();
     }
 
+    /** Remembers what he just sent in their language, so it isn't mistaken for a reply. */
+    static void rememberSent(Context c, String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        String old = Prefs.get(c, Prefs.SENT_RECENT, "");
+        StringBuilder b = new StringBuilder(norm(text));
+        String[] lines = old.split("\n");
+        for (int i = 0; i < lines.length && i < 14; i++) if (!lines[i].isEmpty()) b.append('\n').append(lines[i]);
+        Prefs.sp(c).edit().putString(Prefs.SENT_RECENT, b.toString()).apply();
+    }
+
+    static boolean wasSent(Context c, String text) {
+        String n = norm(text);
+        if (n.isEmpty()) return false;
+        for (String l : Prefs.get(c, Prefs.SENT_RECENT, "").split("\n")) {
+            if (!l.isEmpty() && (l.equals(n) || (n.length() > 12 && (l.startsWith(n) || n.startsWith(l))))) return true;
+        }
+        return false;
+    }
+
+    private static String norm(String t) {
+        return t == null ? "" : t.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+    }
+
     /** Saves a translated incoming message for the keyboard's top bar. */
     static void saveIncoming(Context c, String from, String text, String app) {
         Prefs.sp(c).edit().putString(Prefs.IN_FROM, from).putString(Prefs.IN_TEXT, text)

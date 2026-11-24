@@ -27,6 +27,12 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.7.1
+
+- **Replies now come back translated:** Murmur asks for permission to show notifications before anything else, so the English version can actually pop up (on Android 13 and newer that was getting lost). WhatsApp's notifications are read more reliably, and Murmur's own messages are no longer mistaken for replies.
+- **Replies in the open chat:** WhatsApp sends no notification for a reply in the chat you have open, so an optional second step lets Murmur see new messages in the open chat (WhatsApp, Google Messages, Samsung Messages, Telegram) and translate them too.
+- **Status and test:** settings show whether each part is working and what Murmur last did, and a test button sends you a pretend message in their language.
+
 ## What's new in 1.7
 
 - **Texting mode:** text someone who speaks another language. Hold 文A and tap 📨 Texting mode (or use the switch in Murmur's settings). Talk or type in English and it goes out in their language; tap ⇄ to translate what you typed before you send.

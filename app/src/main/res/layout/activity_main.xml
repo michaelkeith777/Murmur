@@ -78,7 +78,21 @@
             android:id="@+id/texting_access"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Translate replies as they arrive" />
+            android:text="Step 1: translate replies from notifications" />
+        <Button
+            android:id="@+id/texting_open_chat"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Step 2: translate replies in the chat you have open" />
+        <TextView
+            android:id="@+id/texting_status"
+            style="@style/Hint"
+            android:textIsSelectable="true" />
+        <Button
+            android:id="@+id/texting_test"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Send myself a test message in Spanish" />
 
         <TextView style="@style/Section" android:text="SMART CLEANUP" />
         <Switch

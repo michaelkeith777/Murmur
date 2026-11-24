@@ -61,7 +61,7 @@ public class MurmurAccessService extends AccessibilityService {
     static boolean isEnabled(Context c) {
         String on = Settings.Secure.getString(c.getContentResolver(),
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
-        return on != null && on.contains(c.getPackageName() + "/");
+        return on != null && on.contains(new android.content.ComponentName(c, MurmurAccessService.class).flattenToString());
     }
 
     private void toggle() {

@@ -529,7 +529,11 @@ public class MurmurIME extends InputMethodService {
                 }
                 boolean inserted = insert(fText);
                 // Your fixes to a translation aren't spelling lessons for your own language.
-                if (inserted && translated) learnText = null;
+                if (inserted && translated) {
+                    learnText = null;
+                    // So texting mode doesn't translate his own message back when it shows up in a notification.
+                    Translate.rememberSent(this, fText);
+                }
                 if (!inserted) {
                     render("No text field to type into");
                 } else {
@@ -1357,7 +1361,10 @@ public class MurmurIME extends InputMethodService {
     /** Whether Android lets Murmur read message notifications (the phone app's texting helper). */
     private boolean repliesAllowed() {
         String flat = android.provider.Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-        return flat != null && flat.contains(getPackageName() + "/") && flat.contains("MurmurNotifications");
+        String chats = android.provider.Settings.Secure.getString(getContentResolver(),
+                android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        return flat != null && flat.contains(getPackageName() + "/") && flat.contains("MurmurNotifications")
+                && chats != null && chats.contains("MurmurChatReader");
     }
 
     /** Shows the latest translated incoming message in the top bar, once, while it's fresh. */
@@ -1503,6 +1510,7 @@ public class MurmurIME extends InputMethodService {
                     return;
                 }
                 boolean ok = fSelection ? replaceTarget(fTarget, true, fOut) : replaceAll(fTarget, fStart, fOut);
+                if (ok && Translate.texting(this)) Translate.rememberSent(this, fOut);
                 render(ok ? "Rewritten · ↶ brings back the original" : "The text changed, so I left it as it was");
             });
         });

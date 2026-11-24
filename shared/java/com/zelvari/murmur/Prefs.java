@@ -52,6 +52,10 @@ final class Prefs {
     static final String IN_FROM = "in_from";
     static final String IN_APP = "in_app";
     static final String IN_AT = "in_at";
+    static final String SENT_RECENT = "sent_recent";
+    /** Texting mode diagnostics, shown in settings: when the reader connected and what it last did. */
+    static final String DIAG_CONNECTED = "diag_connected";
+    static final String DIAG_LAST = "diag_last";
     /** Key height on narrow screens like a foldable's cover screen, in percent (80 to 130). */
     static final String NARROW_KEY_SIZE = "narrow_key_size";
     static final int NARROW_KEY_SIZE_DEFAULT = 110;

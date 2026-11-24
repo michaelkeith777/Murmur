@@ -5,4 +5,5 @@
     <string name="subtype_voice">Voice dictation</string>
     <string name="access_description">Adds a one-tap dictation button. Tap it while typing in any app: Murmur opens already listening, types what you said, then hands back to your regular keyboard. Murmur does not read your screen.</string>
     <string name="one_tap_hint">In Accessibility, open Installed apps, turn on Murmur and pick the floating Accessibility button as its shortcut. Then tap that button in any text field to dictate. If the switch is greyed out, open Murmur\'s App info, tap the three dots and choose Allow restricted settings. You can also set your side key to open \"Murmur Dictate\".</string>
+    <string name="chat_reader_description">Texting mode helper. WhatsApp and other chat apps don\'t send a notification for a reply in the chat you have open, so this lets Murmur see new messages in the open chat and show them translated. It reads only message bubbles in WhatsApp, Google Messages, Samsung Messages and Telegram, and only while texting mode is on. Messages are sent to your AI provider to translate, the same one your dictation uses.</string>
 </resources>

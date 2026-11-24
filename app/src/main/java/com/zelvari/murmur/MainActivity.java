@@ -177,10 +177,10 @@ public class MainActivity extends Activity {
         refreshTexting();
         if (getIntent() != null && getIntent().getBooleanExtra("setup_texting", false)) {
             getIntent().removeExtra("setup_texting");
-            if (!MurmurNotifications.allowed(this) && textingAccess != null) {
+            if (textingAccess != null) {
                 View sv = findViewById(R.id.texting);
                 if (sv != null) sv.getParent().requestChildFocus(sv, sv);
-                textingAccess.performClick();
+                nextSetupStep();
             }
         }
     }
@@ -192,19 +192,22 @@ public class MainActivity extends Activity {
     }
 
     private Switch texting;
-    private TextView textingHint, textingAccess;
+    private TextView textingHint, textingAccess, textingOpenChat, textingStatus;
+    private boolean openSettingsAfterAsk;
 
     private void setupTexting() {
         texting = findViewById(R.id.texting);
         textingHint = findViewById(R.id.texting_hint);
         textingAccess = findViewById(R.id.texting_access);
+        textingOpenChat = findViewById(R.id.texting_open_chat);
+        textingStatus = findViewById(R.id.texting_status);
         if (texting == null) return;
         texting.setOnCheckedChangeListener((b, on) -> {
             if (on == Translate.texting(this)) return;
             Translate.setTexting(this, on);
             refreshTexting();
             // Turning it on the first time walks straight into the one-time setup.
-            if (on && !MurmurNotifications.allowed(this)) textingAccess.performClick();
+            if (on) nextSetupStep();
         });
         textingAccess.setOnClickListener(v -> {
             if (MurmurNotifications.allowed(this)) {
@@ -212,23 +215,53 @@ public class MainActivity extends Activity {
                 return;
             }
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("Translate replies as they arrive?")
-                    .setMessage("To show their replies in " + Translate.mine(this) + ", Murmur needs to read your "
-                            + "message notifications. While texting mode is on, it reads only messages, sends "
-                            + "the text to your AI provider to translate (the same one your dictation uses), "
-                            + "and shows the translation as a notification and on the keyboard. It keeps only "
-                            + "the latest one. You can turn this off any time in the same Android screen.\n\n"
-                            + "On the next screen, turn on Murmur texting mode.")
+                    .setTitle("Step 1 of 2: replies from notifications")
+                    .setMessage("To show their replies in " + Translate.mine(this) + ", Murmur reads your message "
+                            + "notifications. While texting mode is on, it reads only messages, sends the text to your "
+                            + "AI provider to translate (the same one your dictation uses), and shows the translation "
+                            + "as a notification and on the keyboard.\n\nOn the next screen, turn on Murmur texting "
+                            + "mode. If the switch is greyed out, open Murmur's App info, tap ⋮ and choose Allow "
+                            + "restricted settings, then try again.")
                     .setPositiveButton("Continue", (d, w) -> openListenerSettings())
                     .setNegativeButton("Not now", null)
                     .show();
         });
+        textingOpenChat.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                .setTitle("Step 2 of 2: the chat you have open")
+                .setMessage("WhatsApp and most chat apps don't send a notification when a reply arrives in the chat "
+                        + "you have open, so step 1 can't see it. This lets Murmur see new message bubbles in the open "
+                        + "chat in WhatsApp, Google Messages, Samsung Messages and Telegram, only while texting mode "
+                        + "is on, and show them in " + Translate.mine(this) + ".\n\nOn the next screen, open "
+                        + "Installed apps, then Murmur texting mode: open chats, and turn it on. If it's greyed out, "
+                        + "allow restricted settings in Murmur's App info first.")
+                .setPositiveButton("Continue", (d, w) -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                    } catch (RuntimeException ignored) {
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show());
+        findViewById(R.id.texting_test).setOnClickListener(v -> sendTest());
+    }
+
+    /** Walks through whichever setup step is still missing. */
+    private void nextSetupStep() {
+        if (!MurmurNotifications.allowed(this)) textingAccess.performClick();
+        else if (!MurmurChatReader.enabled(this)) textingOpenChat.performClick();
+    }
+
+    private boolean canNotify() {
+        return android.os.Build.VERSION.SDK_INT < 33
+                || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void openListenerSettings() {
-        if (android.os.Build.VERSION.SDK_INT >= 33
-                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (!canNotify()) {
+            // Ask for notifications first; the access screen opens once he answers.
+            openSettingsAfterAsk = true;
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 41);
+            return;
         }
         try {
             startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
@@ -237,19 +270,107 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Texting mode's notification permission answers. */
+    private void onTextingPermission(int code) {
+        if (code == 41 && openSettingsAfterAsk) {
+            openSettingsAfterAsk = false;
+            openListenerSettings();
+        } else if (code == 42) {
+            sendTest();
+        }
+    }
+
+    /** Posts a pretend message in their language, the way a chat app would, and lets Murmur handle it. */
+    private void sendTest() {
+        if (!Translate.texting(this)) {
+            Translate.setTexting(this, true);
+            refreshTexting();
+        }
+        if (Prefs.get(this, Prefs.API_KEY, "").isEmpty()) {
+            Toast.makeText(this, "Add your API key first", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!canNotify()) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 42);
+            return;
+        }
+        String sample = testMessage(Translate.theirs(this));
+        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+        if (android.os.Build.VERSION.SDK_INT >= 28 && MurmurNotifications.allowed(this) && nm != null
+                && nm.areNotificationsEnabled()) {
+            if (nm.getNotificationChannel(MurmurNotifications.TEST_CHANNEL) == null) {
+                nm.createNotificationChannel(new android.app.NotificationChannel(MurmurNotifications.TEST_CHANNEL,
+                        "Texting mode test", android.app.NotificationManager.IMPORTANCE_LOW));
+            }
+            android.app.Person ana = new android.app.Person.Builder().setName("Test").build();
+            android.app.Person me = new android.app.Person.Builder().setName("You").build();
+            android.app.Notification.Builder nb = new android.app.Notification.Builder(this, MurmurNotifications.TEST_CHANNEL)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setCategory(android.app.Notification.CATEGORY_MESSAGE)
+                    .setStyle(new android.app.Notification.MessagingStyle(me).addMessage(sample, System.currentTimeMillis(), ana))
+                    .setTimeoutAfter(15000)
+                    .setAutoCancel(true);
+            android.os.Bundle extra = new android.os.Bundle();
+            extra.putBoolean(MurmurNotifications.TEST_EXTRA, true);
+            nb.addExtras(extra);
+            MurmurNotifications.note(this, "test message sent, waiting for the notification reader…");
+            nm.notify(999, nb.build());
+            Toast.makeText(this, "Sent “" + sample + "”. The English should pop up in a few seconds.", Toast.LENGTH_LONG).show();
+        } else {
+            // No notification access yet: still check that translating works.
+            String key = Prefs.get(this, Prefs.API_KEY, "");
+            String b = Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL);
+            String base = b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
+            String model = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
+            String mine = Translate.mine(this);
+            android.content.Context ctx = getApplicationContext();
+            MurmurNotifications.note(this, "testing the translation only (step 1 isn't on)…");
+            new Thread(() -> MurmurNotifications.handle(ctx, base, key, model, mine, "Test", sample, "Test", null)).start();
+        }
+        textingStatus.postDelayed(this::refreshTexting, 6000);
+        textingStatus.postDelayed(this::refreshTexting, 12000);
+    }
+
+    private static String testMessage(String language) {
+        switch (language) {
+            case "French": return "Salut ! On se retrouve à 18 h ?";
+            case "German": return "Hallo! Treffen wir uns um 18 Uhr?";
+            case "Italian": return "Ciao! Ci vediamo alle 18?";
+            case "Portuguese": return "Oi! A gente se vê às 18h?";
+            case "Chinese (Simplified)": return "你好！我们六点见面吗？";
+            case "Japanese": return "こんにちは！6時に会いましょうか？";
+            case "Korean": return "안녕! 6시에 만날까?";
+            case "Russian": return "Привет! Встретимся в 6?";
+            case "Vietnamese": return "Chào bạn! 6 giờ gặp nhau nhé?";
+            case "English": return "Hi! Shall we meet at 6?";
+            default: return "¡Hola! ¿Nos vemos a las 6? Ya voy saliendo.";
+        }
+    }
+
     private void refreshTexting() {
         if (texting == null) return;
         boolean on = Translate.texting(this);
         texting.setChecked(on);
-        boolean allowed = MurmurNotifications.allowed(this);
-        textingAccess.setText(allowed ? "✓ Replies are translated as they arrive (tap to change)"
-                : "Translate replies as they arrive");
+        boolean notes = MurmurNotifications.allowed(this);
+        boolean chats = MurmurChatReader.enabled(this);
+        if (on && notes) MurmurNotifications.rebind(this);
+        textingAccess.setText(notes ? "✓ Step 1: replies from notifications" : "Step 1: translate replies from notifications");
+        textingOpenChat.setText(chats ? "✓ Step 2: replies in the chat you have open"
+                : "Step 2: translate replies in the chat you have open");
         textingHint.setText("Text someone who speaks another language. Talk or type in " + Translate.mine(this)
                 + "; Murmur sends it in " + Translate.theirs(this) + " (tap ⇄ on the keyboard to translate what you "
-                + "typed). Their replies show in " + Translate.mine(this) + (allowed ? "." : " once you allow it below, "
-                + "or when you copy a message.") + " Hold 文A on the keyboard to pick their language.");
+                + "typed). Their replies show in " + Translate.mine(this) + " as a notification and in the keyboard's "
+                + "top bar. Hold 文A on the keyboard to pick their language.");
+        long connected = Prefs.sp(this).getLong(Prefs.DIAG_CONNECTED, 0);
+        String last = Prefs.get(this, Prefs.DIAG_LAST, "nothing yet");
+        android.app.NotificationManager nm = getSystemService(android.app.NotificationManager.class);
+        boolean pops = canNotify() && nm != null && nm.areNotificationsEnabled();
+        textingStatus.setText("Status: texting mode " + (on ? "on" : "off")
+                + " · notification reader " + (!notes ? "not allowed" : connected > 0 ? "connected" : "allowed, not connected yet")
+                + " · open-chat reader " + (chats ? "on" : "off")
+                + " · Murmur notifications " + (pops ? "on" : "off (translations show only on the keyboard)")
+                + "\nLast: " + last);
     }
-
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -269,6 +390,11 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 41 || requestCode == 42) {
+            onTextingPermission(requestCode);
+            refreshTexting();
+            return;
+        }
         refreshSteps();
         if (!micGranted() && !shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO)) {
             // Denied for good: the system dialog won't show again, so go to app settings.
