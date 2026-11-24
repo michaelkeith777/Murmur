@@ -57,6 +57,27 @@
                 android:visibility="gone" />
 
             <TextView
+                android:id="@+id/rewrite"
+                android:layout_width="42dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:gravity="center"
+                android:text="✍️"
+                android:textSize="17sp"
+                android:contentDescription="Rewrite the selected text, or the whole message, in a tone" />
+
+            <TextView
+                android:id="@+id/tools"
+                android:layout_width="42dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="3dp"
+                android:gravity="center"
+                android:text="📋"
+                android:textSize="17sp"
+                android:contentDescription="Clipboard, shortcuts and themes" />
+
+            <TextView
                 android:id="@+id/cancel"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
@@ -90,15 +111,37 @@
 
     <!-- Typing keys on the left, the big dictation button on the right. -->
     <LinearLayout
+        android:id="@+id/key_row"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
 
-        <com.zelvari.murmur.KeyboardView
-            android:id="@+id/keys"
+        <!-- The keys, or the clipboard / shortcuts / look panel in their place. -->
+        <FrameLayout
+            android:id="@+id/key_area"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            android:layout_weight="1">
+
+            <com.zelvari.murmur.KeyboardView
+                android:id="@+id/keys"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <ScrollView
+                android:id="@+id/panel_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:overScrollMode="never"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/panel_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </ScrollView>
+        </FrameLayout>
 
         <LinearLayout
             android:layout_width="74dp"

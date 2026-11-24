@@ -114,6 +114,35 @@
             style="@style/Label"
             android:text="Click sound on each key" />
 
+        <TextView style="@style/Label" android:text="Keyboard theme" />
+        <TextView
+            style="@style/Hint"
+            android:text="Also on the keyboard: tap 📋, then Look, for themes and one-handed mode." />
+        <Spinner
+            android:id="@+id/theme"
+            style="@style/Field"
+            android:popupBackground="@color/surface" />
+
+        <TextView style="@style/Section" android:text="CLIPBOARD AND SHORTCUTS" />
+        <Switch
+            android:id="@+id/clip_history"
+            style="@style/Label"
+            android:text="Keep a clipboard history" />
+        <TextView
+            style="@style/Hint"
+            android:text="Tap 📋 on the keyboard to paste something you copied earlier, and 📌 to keep it. The history stays on this phone and skips passwords." />
+        <TextView style="@style/Label" android:text="Shortcuts" />
+        <TextView
+            style="@style/Hint"
+            android:text="One per line, like  myemail = you@example.com. Type the code on the keyboard and tap the phrase above the keys." />
+        <EditText
+            android:id="@+id/shortcuts"
+            style="@style/Field"
+            android:gravity="top"
+            android:hint="addr = 123 Main St, Memphis TN"
+            android:inputType="textMultiLine"
+            android:minLines="3" />
+
         <TextView style="@style/Section" android:text="YOUR VOCABULARY" />
         <TextView style="@style/Label" android:text="Names and words to get right" />
         <TextView

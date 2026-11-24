@@ -1,0 +1,152 @@
+package com.zelvari.murmur;
+
+import android.content.Context;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * Clipboard history and text shortcuts. Both stay on the phone: the history is kept in the
+ * keyboard's own settings and is never sent anywhere.
+ */
+final class Clips {
+    private Clips() {}
+
+    static final class Clip {
+        final String text;
+        final boolean pinned;
+
+        Clip(String text, boolean pinned) {
+            this.text = text;
+            this.pinned = pinned;
+        }
+    }
+
+    private static final int MAX_RECENT = 25;
+    private static final int MAX_PINNED = 30;
+    private static final int MAX_CHARS = 4000;
+
+    /** Pinned first, then newest first. */
+    static List<Clip> list(Context c) {
+        List<Clip> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(Prefs.get(c, Prefs.CLIPS, "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                String t = o.optString("t", "");
+                if (!t.isEmpty()) out.add(new Clip(t, o.optBoolean("p", false)));
+            }
+        } catch (JSONException e) {
+            return out;
+        }
+        return out;
+    }
+
+    private static void save(Context c, List<Clip> clips) {
+        JSONArray a = new JSONArray();
+        try {
+            for (Clip k : clips) a.put(new JSONObject().put("t", k.text).put("p", k.pinned));
+        } catch (JSONException e) {
+            return;
+        }
+        Prefs.sp(c).edit().putString(Prefs.CLIPS, a.toString()).apply();
+    }
+
+    private static List<Clip> ordered(List<Clip> pinned, List<Clip> recent) {
+        List<Clip> out = new ArrayList<>(pinned);
+        out.addAll(recent);
+        return out;
+    }
+
+    /** Adds a copied text to the top of the history. Returns true if the history changed. */
+    static boolean add(Context c, String text) {
+        if (text == null) return false;
+        String t = text.length() > MAX_CHARS ? text.substring(0, MAX_CHARS) : text;
+        if (t.trim().isEmpty()) return false;
+        List<Clip> pinned = new ArrayList<>(), recent = new ArrayList<>();
+        boolean wasPinned = false;
+        for (Clip k : list(c)) {
+            if (k.text.equals(t)) {
+                wasPinned |= k.pinned;
+                continue;
+            }
+            (k.pinned ? pinned : recent).add(k);
+        }
+        if (wasPinned) {
+            pinned.add(0, new Clip(t, true));
+        } else {
+            recent.add(0, new Clip(t, false));
+        }
+        while (recent.size() > MAX_RECENT) recent.remove(recent.size() - 1);
+        save(c, ordered(pinned, recent));
+        return true;
+    }
+
+    static void togglePin(Context c, String text) {
+        List<Clip> pinned = new ArrayList<>(), recent = new ArrayList<>();
+        for (Clip k : list(c)) {
+            if (k.text.equals(text)) {
+                if (k.pinned) {
+                    recent.add(0, new Clip(k.text, false));
+                } else if (pinned.size() < MAX_PINNED) {
+                    pinned.add(0, new Clip(k.text, true));
+                } else {
+                    recent.add(k);
+                }
+                continue;
+            }
+            (k.pinned ? pinned : recent).add(k);
+        }
+        save(c, ordered(pinned, recent));
+    }
+
+    static void remove(Context c, String text) {
+        List<Clip> keep = new ArrayList<>();
+        for (Clip k : list(c)) if (!k.text.equals(text)) keep.add(k);
+        save(c, keep);
+    }
+
+    /** Clears the history but keeps pinned clips. */
+    static void clearRecent(Context c) {
+        List<Clip> keep = new ArrayList<>();
+        for (Clip k : list(c)) if (k.pinned) keep.add(k);
+        save(c, keep);
+    }
+
+    // ---- shortcuts ------------------------------------------------------------------
+
+    /** Lower-case code → phrase, from lines like "myemail = me@example.com". */
+    static LinkedHashMap<String, String> shortcuts(Context c) {
+        return parseShortcuts(Prefs.get(c, Prefs.SHORTCUTS, ""));
+    }
+
+    static LinkedHashMap<String, String> parseShortcuts(String stored) {
+        LinkedHashMap<String, String> out = new LinkedHashMap<>();
+        for (String line : stored.split("\\n")) {
+            int eq = line.indexOf('=');
+            if (eq <= 0) continue;
+            String code = line.substring(0, eq).trim().toLowerCase(Locale.ROOT);
+            String phrase = line.substring(eq + 1).trim().replace("\\n", "\n");
+            if (code.isEmpty() || phrase.isEmpty() || code.contains(" ")) continue;
+            out.put(code, phrase);
+        }
+        return out;
+    }
+
+    static String displayShortcuts(Map<String, String> map) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : map.entrySet()) {
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(e.getKey()).append(" = ").append(e.getValue().replace("\n", "\\n"));
+        }
+        return sb.toString();
+    }
+}

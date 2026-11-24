@@ -37,6 +37,16 @@ final class Prefs {
     static final String KEY_SOUND = "key_sound";
     /** Words the user kept by undoing an autocorrect, one per line, newest last. */
     static final String TYPED_WORDS = "typed_words";
+    /** Keyboard colour theme; see {@link Theme}. */
+    static final String THEME = "theme";
+    /** One-handed mode: off, left or right. */
+    static final String ONE_HAND = "one_hand";
+    /** Keep a history of copied text on the phone. */
+    static final String CLIP_HISTORY = "clip_history";
+    /** The clipboard history itself (JSON), on the phone only. */
+    static final String CLIPS = "clips";
+    /** Text shortcuts, one "code = phrase" per line. */
+    static final String SHORTCUTS = "shortcuts";
     /** Settings version, for one-time upgrades of stored defaults. */
     static final String SCHEMA = "schema";
     /** Time (ms) the one-tap trigger last asked the keyboard to listen as soon as it opens. */

@@ -25,7 +25,9 @@ public class MainActivity extends Activity {
     private EditText apiKey, style, vocab, language, baseUrl, sttModel, llmModel;
     private Switch cleanup, autoStart, autoReturn, commands, learn, learnStyle;
     private Switch autocorrect, swipe, keyVibrate, keySound;
-    private Spinner tone;
+    private Spinner tone, theme;
+    private Switch clipHistory;
+    private EditText shortcutsField;
     private EditText learned;
     private TextView samplesInfo;
     /**
@@ -64,6 +66,24 @@ public class MainActivity extends Activity {
         learned = findViewById(R.id.learned);
         samplesInfo = findViewById(R.id.samples_info);
         tone = findViewById(R.id.tone);
+        theme = findViewById(R.id.theme);
+        clipHistory = findViewById(R.id.clip_history);
+        shortcutsField = findViewById(R.id.shortcuts);
+
+        ArrayAdapter<String> themes = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, Theme.LABELS);
+        themes.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        theme.setAdapter(themes);
+        theme.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                // Saved right away, like the tone: the keyboard changes the same setting.
+                Theme.set(MainActivity.this, Theme.IDS[position]);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
 
         String[] toneNames = new String[Tones.IDS.length];
         for (int i = 0; i < toneNames.length; i++) {
@@ -123,6 +143,9 @@ public class MainActivity extends Activity {
         super.onResume();
         refreshSteps();
         tone.setSelection(Tones.index(Tones.current(this)));
+        theme.setSelection(Theme.index(Theme.current(this)));
+        clipHistory.setChecked(Prefs.flag(this, Prefs.CLIP_HISTORY, true));
+        shortcutsField.setText(Clips.displayShortcuts(Clips.shortcuts(this)));
         refreshLearned(false);
     }
 
@@ -209,7 +232,10 @@ public class MainActivity extends Activity {
                 .putBoolean(Prefs.SWIPE, swipe.isChecked())
                 .putBoolean(Prefs.KEY_VIBRATE, keyVibrate.isChecked())
                 .putBoolean(Prefs.KEY_SOUND, keySound.isChecked())
+                .putBoolean(Prefs.CLIP_HISTORY, clipHistory.isChecked())
+                .putString(Prefs.SHORTCUTS, Clips.displayShortcuts(Clips.parseShortcuts(text(shortcutsField))))
                 .apply();
+        if (!clipHistory.isChecked()) Prefs.sp(this).edit().remove(Prefs.CLIPS).apply();
         // Only overwrite the lists if they were edited here, so words the keyboard just
         // learned are not lost.
         if (!text(vocab).equals(shownVocab)) {

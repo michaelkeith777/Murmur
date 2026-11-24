@@ -27,6 +27,19 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.4
+
+- **Rewrite button (✍️).** Select text in any app, or select nothing to use the whole message,
+  then tap ✍️ and pick Fix grammar, Professional, Casual, Hype, Short & sweet, Kind, Flirty,
+  Pirate or Shakespeare. ↶ brings back the original.
+- **Clipboard history (📋).** Everything you copy is listed so you can paste it again later.
+  📌 keeps a clip; Clear removes the rest. The history stays on the phone and skips passwords
+  and anything an app marks as sensitive. It can be turned off in the app.
+- **Shortcuts.** Add lines like `myemail = you@example.com` in the app. Type the code on the
+  keyboard and the phrase shows above the keys; tap it to type it. Codes are never autocorrected.
+- **Themes and one-handed mode.** 📋 → Look: Midnight, Pure black, Ocean, Forest, Sunset and
+  Light, plus a one-handed layout for either thumb.
+
 ## What's new in 1.3
 
 - **Faster keys.** Letters go in the instant your finger touches the key, not when it lifts.

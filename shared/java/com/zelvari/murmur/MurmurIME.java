@@ -3,6 +3,9 @@ package com.zelvari.murmur;
 import android.Manifest;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
+import android.content.ClipData;
+import android.content.ClipDescription;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -39,6 +42,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -134,7 +139,9 @@ public class MurmurIME extends InputMethodService {
     @Override
     public View onCreateInputView() {
         Prefs.migrate(this);
-        View root = getLayoutInflater().inflate(R.layout.keyboard, null);
+        root = getLayoutInflater().inflate(R.layout.keyboard, null);
+        themeId = null;
+        hand = null;
         status = root.findViewById(R.id.status);
         cancel = root.findViewById(R.id.cancel);
         mic = root.findViewById(R.id.mic);
@@ -181,6 +188,8 @@ public class MurmurIME extends InputMethodService {
             paintToneChip(false);
         }
         if (keys != null) setupKeys();
+        setupExtras();
+        if (keys != null) refreshLook();
 
         render(IDLE_HINT);
         return root;
@@ -205,6 +214,8 @@ public class MurmurIME extends InputMethodService {
         showTonePicker(false);
         refreshTone();
         readTypingOptions(info);
+        closePanel();
+        if (keys != null) refreshLook();
         if (keys != null) {
             keys.setSymbols(symbols);
             keys.setShift(shift);
@@ -297,6 +308,14 @@ public class MurmurIME extends InputMethodService {
         ui.removeCallbacksAndMessages(null);
         worker.shutdownNow();
         typing.shutdownNow();
+        if (clipboard != null) {
+            try {
+                clipboard.removePrimaryClipChangedListener(clipListener);
+            } catch (RuntimeException ignored) {
+                // already gone
+            }
+            clipboard = null;
+        }
         super.onDestroy();
     }
 
@@ -305,6 +324,7 @@ public class MurmurIME extends InputMethodService {
     private void onMicTapped() {
         if (busy) return;
         showTonePicker(false);
+        closePanel();
         finishWord(false);
         if (recording) {
             finishRecording();
@@ -708,6 +728,7 @@ public class MurmurIME extends InputMethodService {
         String id = Tones.current(this);
         toneChip.setText(compactChip ? Tones.emoji(id) : Tones.emoji(id) + "  " + Tones.label(id) + "  ▾");
         toneChip.setBackground(pill(Tones.color(id), false));
+        toneChip.setTextColor(tc[Theme.TEXT]);
         if (bounce) {
             toneChip.setScaleX(0.8f);
             toneChip.setScaleY(0.8f);
@@ -730,7 +751,7 @@ public class MurmurIME extends InputMethodService {
             final String id = Tones.IDS[i];
             TextView chip = new TextView(this);
             chip.setText(Tones.EMOJI[i] + "  " + Tones.LABELS[i]);
-            chip.setTextColor(getColor(R.color.text));
+            chip.setTextColor(tc[Theme.TEXT]);
             chip.setTextSize(14);
             chip.setTypeface(Typeface.DEFAULT_BOLD);
             chip.setGravity(Gravity.CENTER);
@@ -749,7 +770,7 @@ public class MurmurIME extends InputMethodService {
         }
         TextView close = new TextView(this);
         close.setText("✕");
-        close.setTextColor(getColor(R.color.dim));
+        close.setTextColor(tc[Theme.DIM]);
         close.setTextSize(16);
         close.setGravity(Gravity.CENTER);
         close.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(34)));
@@ -786,6 +807,572 @@ public class MurmurIME extends InputMethodService {
         return g;
     }
 
+    // ---- 1.4: rewrite, clipboard, shortcuts, themes ------------------------------------
+
+    private View root;
+    private TextView rewriteBtn;
+    private TextView toolsBtn;
+    private View keyRow;
+    private View panelScroll;
+    private LinearLayout panelList;
+    private int[] tc = Theme.colors(Theme.IDS[0]);
+    private String themeId;
+    private String hand;
+    private String panelTab;
+    private ClipboardManager clipboard;
+    private LinkedHashMap<String, String> shortcuts = new LinkedHashMap<>();
+
+    private static final String TAB_CLIPS = "clips", TAB_SHORTCUTS = "shortcuts", TAB_LOOK = "look";
+
+    // Rewrite options: id, emoji, label, instruction.
+    private static final String[][] REWRITES = {
+            {"grammar", "🩹", "Fix grammar", "Fix spelling, grammar and punctuation only. Keep the wording and the meaning."},
+            {Tones.PROFESSIONAL, null, null, null},
+            {Tones.CASUAL, null, null, null},
+            {"hype", null, null, null},
+            {"short", null, null, null},
+            {"kind", null, null, null},
+            {"flirty", null, null, null},
+            {"pirate", null, null, null},
+            {"shakespeare", null, null, null},
+    };
+
+    private final ClipboardManager.OnPrimaryClipChangedListener clipListener = this::saveCurrentClip;
+
+    private void setupExtras() {
+        rewriteBtn = root.findViewById(R.id.rewrite);
+        toolsBtn = root.findViewById(R.id.tools);
+        keyRow = root.findViewById(R.id.key_row);
+        panelScroll = root.findViewById(R.id.panel_scroll);
+        panelList = root.findViewById(R.id.panel_list);
+        if (rewriteBtn != null) rewriteBtn.setOnClickListener(v -> {
+            closePanel();
+            showRewritePicker();
+        });
+        if (toolsBtn != null) toolsBtn.setOnClickListener(v -> {
+            if (panelScroll != null && panelScroll.getVisibility() == View.VISIBLE) {
+                closePanel();
+            } else {
+                openPanel(panelTab != null ? panelTab : TAB_CLIPS);
+            }
+        });
+        if (keys != null && clipboard == null) {
+            try {
+                clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (clipboard != null) clipboard.addPrimaryClipChangedListener(clipListener);
+            } catch (RuntimeException e) {
+                clipboard = null;
+            }
+        }
+    }
+
+    /** Picks up theme, one-handed mode and shortcuts changed in the app or on the keyboard. */
+    private void refreshLook() {
+        String id = Theme.current(this);
+        if (!id.equals(themeId)) {
+            themeId = id;
+            tc = Theme.colors(id);
+            applyTheme();
+        }
+        String h = Theme.hand(this);
+        if (!h.equals(hand)) {
+            hand = h;
+            applyHand();
+        }
+        shortcuts = Clips.shortcuts(this);
+    }
+
+    private void applyTheme() {
+        if (root == null) return;
+        root.setBackgroundColor(tc[Theme.BG]);
+        if (status != null) status.setTextColor(tc[Theme.DIM]);
+        if (cancel != null) {
+            cancel.setBackground(keyBg(tc[Theme.KEY]));
+            cancel.setTextColor(tc[Theme.TEXT]);
+        }
+        View undo = root.findViewById(R.id.k_undo);
+        if (undo instanceof TextView && keys != null) {
+            undo.setBackground(keyBg(tc[Theme.SURFACE]));
+            ((TextView) undo).setTextColor(tc[Theme.TEXT]);
+        }
+        for (TextView b : new TextView[]{rewriteBtn, toolsBtn}) {
+            if (b == null) continue;
+            b.setBackground(keyBg(tc[Theme.SURFACE]));
+        }
+        if (keys != null) {
+            keys.setColors(tc[Theme.KEY], tc[Theme.SURFACE], tc[Theme.PRESSED], tc[Theme.TEXT], tc[Theme.DIM]);
+        }
+        for (TextView cell : cells) {
+            if (cell == null) continue;
+            cell.setBackground(keyBg(tc[Theme.BG]));
+            cell.setTextColor(tc[Theme.TEXT]);
+        }
+        if (suggestions != null) {
+            for (int i = 0; i < suggestions.getChildCount(); i++) {
+                View v = suggestions.getChildAt(i);
+                if (!(v instanceof TextView)) v.setBackgroundColor(tc[Theme.KEY]);
+            }
+        }
+        if (panelScroll != null) panelScroll.setBackgroundColor(tc[Theme.BG]);
+        paintToneChip(false);
+        if (panelScroll != null && panelScroll.getVisibility() == View.VISIBLE) openPanel(panelTab);
+    }
+
+    /** One-handed mode: the keys and mic move to one side and the free side holds two buttons. */
+    private void applyHand() {
+        if (!(keyRow instanceof LinearLayout)) return;
+        LinearLayout row = (LinearLayout) keyRow;
+        for (int i = row.getChildCount() - 1; i >= 0; i--) {
+            if ("hand_gap".equals(row.getChildAt(i).getTag())) row.removeViewAt(i);
+        }
+        if (Theme.HAND_OFF.equals(hand)) return;
+        int width = Math.round(getResources().getDisplayMetrics().widthPixels * 0.17f);
+        LinearLayout gap = new LinearLayout(this);
+        gap.setTag("hand_gap");
+        gap.setOrientation(LinearLayout.VERTICAL);
+        gap.setGravity(Gravity.CENTER);
+        gap.setLayoutParams(new LinearLayout.LayoutParams(width, ViewGroup.LayoutParams.MATCH_PARENT));
+        boolean right = Theme.HAND_RIGHT.equals(hand);
+        gap.addView(handButton(right ? "⇤" : "⇥", "Move the keys to the other side",
+                v -> setHand(right ? Theme.HAND_LEFT : Theme.HAND_RIGHT)));
+        gap.addView(handButton("⤢", "Full width keyboard", v -> setHand(Theme.HAND_OFF)));
+        if (right) row.addView(gap, 0);
+        else row.addView(gap);
+    }
+
+    private TextView handButton(String label, String description, View.OnClickListener click) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextSize(22);
+        b.setGravity(Gravity.CENTER);
+        b.setTextColor(tc[Theme.TEXT]);
+        b.setBackground(keyBg(tc[Theme.SURFACE]));
+        b.setContentDescription(description);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(56));
+        lp.setMargins(0, dp(6), 0, dp(6));
+        b.setLayoutParams(lp);
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private void setHand(String h) {
+        Theme.setHand(this, h);
+        hand = h;
+        applyHand();
+        if (keys != null) keys.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        if (panelScroll != null && panelScroll.getVisibility() == View.VISIBLE) openPanel(panelTab);
+    }
+
+    // ---- rewrite --------------------------------------------------------------------
+
+    private void showRewritePicker() {
+        if (tonePicker == null || statusRow == null || toneList == null) return;
+        if (recording || busy) return;
+        toneList.removeAllViews();
+        TextView title = new TextView(this);
+        title.setText("Rewrite as");
+        title.setTextColor(tc[Theme.DIM]);
+        title.setTextSize(13);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(dp(8), 0, dp(6), 0);
+        title.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
+        toneList.addView(title);
+        for (int i = 0; i < REWRITES.length; i++) {
+            final String id = REWRITES[i][0];
+            final boolean isTone = REWRITES[i][1] == null;
+            final String emoji = isTone ? Tones.emoji(id) : REWRITES[i][1];
+            final String label = isTone ? Tones.label(id) : REWRITES[i][2];
+            final String instruction = isTone
+                    ? "Rewrite the text in this tone. " + Tones.rule(id)
+                    : REWRITES[i][3];
+            int color = isTone ? Tones.color(id) : 0xFF10B981;
+            TextView chip = new TextView(this);
+            chip.setText(emoji + "  " + label);
+            chip.setTextColor(tc[Theme.TEXT]);
+            chip.setTextSize(14);
+            chip.setTypeface(Typeface.DEFAULT_BOLD);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(dp(14), 0, dp(14), 0);
+            chip.setBackground(pill(color, false));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
+            lp.setMargins(dp(3), 0, dp(3), 0);
+            chip.setLayoutParams(lp);
+            chip.setOnClickListener(v -> {
+                showTonePicker(false);
+                rewrite(instruction, emoji + " " + label);
+            });
+            toneList.addView(chip);
+            chip.setAlpha(0f);
+            chip.setTranslationY(dp(10));
+            chip.animate().alpha(1f).translationY(0).setStartDelay(i * 28L).setDuration(180).start();
+        }
+        TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextColor(tc[Theme.DIM]);
+        close.setTextSize(16);
+        close.setGravity(Gravity.CENTER);
+        close.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(34)));
+        close.setContentDescription("Close");
+        close.setOnClickListener(v -> showTonePicker(false));
+        toneList.addView(close);
+        tonePicker.setVisibility(View.VISIBLE);
+        statusRow.setVisibility(View.INVISIBLE);
+        tonePicker.post(() -> tonePicker.scrollTo(0, 0));
+    }
+
+    /** Rewrites the selection, or the whole message when nothing is selected. */
+    private void rewrite(String instruction, String label) {
+        if (busy || recording) return;
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        finishWord(false);
+        final String key = Prefs.get(this, Prefs.API_KEY, "");
+        if (key.isEmpty()) {
+            render("Add your API key in the Murmur app first");
+            return;
+        }
+        String target = null;
+        boolean selection = false;
+        int start = 0;
+        CharSequence sel = ic.getSelectedText(0);
+        if (sel != null && sel.length() > 0) {
+            target = sel.toString();
+            selection = true;
+        } else {
+            ExtractedText et = null;
+            try {
+                ExtractedTextRequest req = new ExtractedTextRequest();
+                req.hintMaxChars = 6000;
+                et = ic.getExtractedText(req, 0);
+            } catch (RuntimeException ignored) {
+                // some fields don't share their text
+            }
+            if (et != null && et.text != null && et.text.length() > 0 && et.partialStartOffset < 0
+                    && et.text.length() <= 5000) {
+                target = et.text.toString();
+                start = et.startOffset;
+            }
+        }
+        if (target == null || target.trim().isEmpty()) {
+            render("Type or select some text first, then tap ✍️");
+            return;
+        }
+        final String fTarget = target;
+        final boolean fSelection = selection;
+        final int fStart = start;
+        final String base = stripSlash(Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL));
+        final String llmModel = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
+        final String vocab = Prefs.get(this, Prefs.VOCAB, "");
+        busy = true;
+        final int gen = ++generation;
+        render("Rewriting " + label + "…");
+        worker.execute(() -> {
+            String out = null;
+            String error = null;
+            try {
+                out = AiClient.edit(base, key, llmModel, fTarget, instruction, vocab);
+                if (out.isEmpty()) error = "The rewrite came back empty. Nothing changed";
+            } catch (Exception e) {
+                String m = e.getMessage();
+                error = m == null || m.isEmpty() ? "Network problem. Try again" : m;
+            }
+            final String fOut = out;
+            final String fError = error;
+            ui.post(() -> {
+                if (gen != generation) return;
+                busy = false;
+                if (fError != null) {
+                    render(fError);
+                    return;
+                }
+                boolean ok = fSelection ? replaceTarget(fTarget, true, fOut) : replaceAll(fTarget, fStart, fOut);
+                render(ok ? "Rewritten · ↶ brings back the original" : "The text changed, so I left it as it was");
+            });
+        });
+    }
+
+    /** Swaps the whole message for its rewrite, if it hasn't changed meanwhile. */
+    private boolean replaceAll(String target, int start, String edited) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return false;
+        ExtractedText et;
+        try {
+            ExtractedTextRequest req = new ExtractedTextRequest();
+            req.hintMaxChars = 6000;
+            et = ic.getExtractedText(req, 0);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (et == null || et.text == null || !et.text.toString().equals(target) || et.startOffset != start) return false;
+        ic.beginBatchEdit();
+        ic.setSelection(start, start + target.length());
+        ic.commitText(edited, 1);
+        ic.endBatchEdit();
+        lastText = edited;
+        undoRestore = target;
+        lastInsertedLength = edited.length();
+        learnText = null;
+        return true;
+    }
+
+    // ---- clipboard, shortcuts and look panel ----------------------------------------
+
+    private void saveCurrentClip() {
+        if (!Prefs.flag(this, Prefs.CLIP_HISTORY, true)) return;
+        // Never keep what's copied while a password field is open.
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (info != null) {
+            int var = info.inputType & InputType.TYPE_MASK_VARIATION;
+            if (var == InputType.TYPE_TEXT_VARIATION_PASSWORD || var == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+                    || var == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                    || var == InputType.TYPE_NUMBER_VARIATION_PASSWORD) return;
+        }
+        try {
+            if (clipboard == null || !clipboard.hasPrimaryClip()) return;
+            ClipData clip = clipboard.getPrimaryClip();
+            if (clip == null || clip.getItemCount() == 0) return;
+            ClipDescription d = clip.getDescription();
+            // Apps mark passwords and codes as sensitive; leave those out of the history.
+            if (d != null && d.getExtras() != null
+                    && d.getExtras().getBoolean("android.content.extra.IS_SENSITIVE", false)) return;
+            CharSequence t = clip.getItemAt(0).getText();
+            if (t != null) Clips.add(this, t.toString());
+        } catch (RuntimeException ignored) {
+            // the system may refuse clipboard access in the background
+        }
+    }
+
+    private void openPanel(String tab) {
+        if (panelScroll == null || panelList == null || keys == null) return;
+        if (recording || busy) return;
+        showTonePicker(false);
+        finishWord(false);
+        panelTab = tab;
+        if (TAB_CLIPS.equals(tab)) saveCurrentClip();
+        panelList.removeAllViews();
+        panelScroll.setBackgroundColor(tc[Theme.BG]);
+
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.addView(tabButton("📋 Clipboard", TAB_CLIPS));
+        tabs.addView(tabButton("⚡ Shortcuts", TAB_SHORTCUTS));
+        tabs.addView(tabButton("🎨 Look", TAB_LOOK));
+        TextView back = smallButton("⌨", v -> closePanel());
+        back.setContentDescription("Back to the keys");
+        tabs.addView(back);
+        panelList.addView(tabs);
+
+        if (TAB_CLIPS.equals(tab)) fillClips();
+        else if (TAB_SHORTCUTS.equals(tab)) fillShortcuts();
+        else fillLook();
+
+        keys.setVisibility(View.INVISIBLE);
+        panelScroll.setVisibility(View.VISIBLE);
+        panelScroll.scrollTo(0, 0);
+    }
+
+    private void closePanel() {
+        if (panelScroll == null || keys == null) return;
+        if (panelScroll.getVisibility() != View.VISIBLE) return;
+        panelScroll.setVisibility(View.GONE);
+        keys.setVisibility(View.VISIBLE);
+    }
+
+    private TextView tabButton(String label, String tab) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextSize(13);
+        b.setGravity(Gravity.CENTER);
+        b.setSingleLine(true);
+        boolean on = tab.equals(panelTab);
+        b.setTextColor(on ? 0xFFFFFFFF : tc[Theme.TEXT]);
+        b.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        b.setBackground(keyBg(on ? toneColor : tc[Theme.SURFACE]));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        lp.setMargins(dp(2), dp(3), dp(2), dp(3));
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v -> openPanel(tab));
+        return b;
+    }
+
+    private TextView smallButton(String label, View.OnClickListener click) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextSize(16);
+        b.setGravity(Gravity.CENTER);
+        b.setTextColor(tc[Theme.TEXT]);
+        b.setBackground(keyBg(tc[Theme.SURFACE]));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(44), dp(38));
+        lp.setMargins(dp(2), dp(3), dp(2), dp(3));
+        b.setLayoutParams(lp);
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private TextView hint(String text) {
+        TextView h = new TextView(this);
+        h.setText(text);
+        h.setTextSize(13);
+        h.setTextColor(tc[Theme.DIM]);
+        h.setPadding(dp(10), dp(10), dp(10), dp(10));
+        return h;
+    }
+
+    private void fillClips() {
+        List<Clips.Clip> clips = Clips.list(this);
+        if (!Prefs.flag(this, Prefs.CLIP_HISTORY, true)) {
+            panelList.addView(hint("Clipboard history is off. Turn it on in the Murmur app."));
+            return;
+        }
+        if (clips.isEmpty()) {
+            panelList.addView(hint("Copy something and it shows up here. Tap to paste, 📌 to keep it. "
+                    + "Your clipboard stays on this phone."));
+            return;
+        }
+        for (Clips.Clip k : clips) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView t = new TextView(this);
+            t.setText(k.text.replace('\n', ' '));
+            t.setMaxLines(2);
+            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            t.setTextSize(15);
+            t.setTextColor(tc[Theme.TEXT]);
+            t.setPadding(dp(10), dp(8), dp(8), dp(8));
+            t.setMinHeight(dp(44));
+            t.setGravity(Gravity.CENTER_VERTICAL);
+            t.setBackground(keyBg(tc[Theme.KEY]));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(dp(2), dp(2), dp(2), dp(2));
+            t.setLayoutParams(lp);
+            final String text = k.text;
+            t.setOnClickListener(v -> pasteText(text));
+            row.addView(t);
+            TextView pin = smallButton(k.pinned ? "📌" : "📍", v -> {
+                Clips.togglePin(this, text);
+                openPanel(TAB_CLIPS);
+            });
+            pin.setAlpha(k.pinned ? 1f : 0.55f);
+            pin.setContentDescription(k.pinned ? "Unpin" : "Pin");
+            row.addView(pin);
+            TextView del = smallButton("✕", v -> {
+                Clips.remove(this, text);
+                openPanel(TAB_CLIPS);
+            });
+            del.setContentDescription("Delete");
+            row.addView(del);
+            panelList.addView(row);
+        }
+        TextView clear = new TextView(this);
+        clear.setText("Clear history (keeps pinned)");
+        clear.setTextSize(13);
+        clear.setGravity(Gravity.CENTER);
+        clear.setTextColor(tc[Theme.DIM]);
+        clear.setPadding(0, dp(12), 0, dp(12));
+        clear.setOnClickListener(v -> {
+            Clips.clearRecent(this);
+            openPanel(TAB_CLIPS);
+        });
+        panelList.addView(clear);
+    }
+
+    private void fillShortcuts() {
+        shortcuts = Clips.shortcuts(this);
+        if (shortcuts.isEmpty()) {
+            panelList.addView(hint("No shortcuts yet. Add them in the Murmur app, like  myemail = you@example.com. "
+                    + "Then type the code and tap the phrase above the keys."));
+            return;
+        }
+        for (Map.Entry<String, String> e : shortcuts.entrySet()) {
+            TextView t = new TextView(this);
+            t.setText(e.getKey() + "  →  " + e.getValue().replace('\n', ' '));
+            t.setMaxLines(2);
+            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            t.setTextSize(15);
+            t.setTextColor(tc[Theme.TEXT]);
+            t.setPadding(dp(10), dp(8), dp(10), dp(8));
+            t.setMinHeight(dp(44));
+            t.setGravity(Gravity.CENTER_VERTICAL);
+            t.setBackground(keyBg(tc[Theme.KEY]));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(dp(2), dp(2), dp(2), dp(2));
+            t.setLayoutParams(lp);
+            final String phrase = e.getValue();
+            t.setOnClickListener(v -> pasteText(phrase));
+            panelList.addView(t);
+        }
+        panelList.addView(hint("Edit these in the Murmur app."));
+    }
+
+    private void fillLook() {
+        panelList.addView(hint("Theme"));
+        LinearLayout grid = null;
+        for (int i = 0; i < Theme.IDS.length; i++) {
+            if (i % 3 == 0) {
+                grid = new LinearLayout(this);
+                grid.setOrientation(LinearLayout.HORIZONTAL);
+                panelList.addView(grid);
+            }
+            final String id = Theme.IDS[i];
+            int[] c = Theme.colors(id);
+            TextView sw = new TextView(this);
+            sw.setText(Theme.LABELS[i] + (id.equals(themeId) ? "  ✓" : ""));
+            sw.setTextSize(14);
+            sw.setGravity(Gravity.CENTER);
+            sw.setTextColor(c[Theme.TEXT]);
+            sw.setTypeface(id.equals(themeId) ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            GradientDrawable g = new GradientDrawable();
+            g.setCornerRadius(dp(10));
+            g.setColor(c[Theme.KEY]);
+            g.setStroke(dp(id.equals(themeId) ? 2.5f : 1f), id.equals(themeId) ? toneColor : c[Theme.PRESSED]);
+            sw.setBackground(g);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(46), 1f);
+            lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+            sw.setLayoutParams(lp);
+            sw.setOnClickListener(v -> {
+                Theme.set(this, id);
+                refreshLook();
+                openPanel(TAB_LOOK);
+            });
+            grid.addView(sw);
+        }
+        panelList.addView(hint("One-handed"));
+        LinearLayout hands = new LinearLayout(this);
+        hands.setOrientation(LinearLayout.HORIZONTAL);
+        String[][] opts = {{Theme.HAND_LEFT, "👈 Left"}, {Theme.HAND_OFF, "Full width"}, {Theme.HAND_RIGHT, "Right 👉"}};
+        for (String[] o : opts) {
+            final String h = o[0];
+            boolean on = h.equals(hand);
+            TextView b = new TextView(this);
+            b.setText(o[1]);
+            b.setTextSize(14);
+            b.setGravity(Gravity.CENTER);
+            b.setTextColor(on ? 0xFFFFFFFF : tc[Theme.TEXT]);
+            b.setTypeface(on ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+            b.setBackground(keyBg(on ? toneColor : tc[Theme.SURFACE]));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(44), 1f);
+            lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+            b.setLayoutParams(lp);
+            b.setOnClickListener(v -> setHand(h));
+            hands.addView(b);
+        }
+        panelList.addView(hands);
+    }
+
+    private void pasteText(String text) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        finishWord(false);
+        clearRevert();
+        ic.commitText(text, 1);
+        lastInsertedLength = 0;
+        if (keys != null) keys.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        closePanel();
+    }
+
     // ---- typing keyboard -------------------------------------------------------------
 
     /** The word list is shared by every keyboard instance and loaded once, off the main thread. */
@@ -813,14 +1400,13 @@ public class MurmurIME extends InputMethodService {
     private Corrector.Result cached;
     private boolean compactChip;
 
-    private static final int CELL_WORD = 0, CELL_KEEP = 1, CELL_SWIPE = 2;
+    private static final int CELL_WORD = 0, CELL_KEEP = 1, CELL_SWIPE = 2, CELL_SHORTCUT = 3;
     private final TextView[] cells = new TextView[3];
     private final String[] cellWord = new String[3];
     private final int[] cellKind = new int[3];
 
     private void setupKeys() {
-        keys.setColors(getColor(R.color.key), getColor(R.color.surface), getColor(R.color.key_pressed),
-                getColor(R.color.text), getColor(R.color.dim));
+        keys.setColors(tc[Theme.KEY], tc[Theme.SURFACE], tc[Theme.PRESSED], tc[Theme.TEXT], tc[Theme.DIM]);
         keys.setAccent(toneColor);
         keys.setListener(new KeyboardView.Listener() {
             @Override
@@ -883,20 +1469,20 @@ public class MurmurIME extends InputMethodService {
                 final int at = i;
                 TextView cell = new TextView(this);
                 cell.setGravity(Gravity.CENTER);
-                cell.setTextColor(getColor(R.color.text));
+                cell.setTextColor(tc[Theme.TEXT]);
                 cell.setTextSize(16);
                 cell.setSingleLine(true);
                 cell.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 cell.setPadding(dp(4), 0, dp(4), 0);
                 cell.setSoundEffectsEnabled(false);
-                cell.setBackground(keyBg(getColor(R.color.bg)));
+                cell.setBackground(keyBg(tc[Theme.BG]));
                 cell.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
                 cell.setOnClickListener(v -> pickSuggestion(at));
                 cells[i] = cell;
                 suggestions.addView(cell);
                 if (i < 2) {
                     View line = new View(this);
-                    line.setBackgroundColor(getColor(R.color.key));
+                    line.setBackgroundColor(tc[Theme.KEY]);
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(1), dp(22));
                     lp.gravity = Gravity.CENTER_VERTICAL;
                     line.setLayoutParams(lp);
@@ -1042,7 +1628,8 @@ public class MurmurIME extends InputMethodService {
         String typed = word.toString();
         String out = typed;
         boolean keep = typed.equals(keepAsTyped);
-        if (correct && autocorrectOn && !wordSwiped && !wordNoCorrect && !keep && dict != null) {
+        boolean code = shortcuts.containsKey(typed.toLowerCase(Locale.ROOT));
+        if (correct && autocorrectOn && !wordSwiped && !wordNoCorrect && !keep && !code && dict != null) {
             Corrector.Result r = resultFor(typed);
             if (r != null && r.autocorrect != null) out = r.autocorrect;
         }
@@ -1204,7 +1791,15 @@ public class MurmurIME extends InputMethodService {
     private void showTypedStrip(String typed, Corrector.Result r) {
         if (recording || busy) return;
         int n = 0;
-        if (r.autocorrect != null && autocorrectOn && !wordNoCorrect && !typed.equals(keepAsTyped)) {
+        String phrase = shortcuts.get(typed.toLowerCase(Locale.ROOT));
+        if (phrase != null) {
+            // A shortcut code: offer its phrase first and never "fix" the code.
+            setCell(n++, "⚡ " + phrase.replace('\n', ' '), phrase, CELL_SHORTCUT, true);
+            for (String s : r.suggestions) {
+                if (n >= 3) break;
+                setCell(n++, s, s, CELL_WORD, false);
+            }
+        } else if (r.autocorrect != null && autocorrectOn && !wordNoCorrect && !typed.equals(keepAsTyped)) {
             setCell(n++, "“" + typed + "”", typed, CELL_KEEP, false);
             setCell(n++, r.autocorrect, r.autocorrect, CELL_WORD, true);
             for (String s : r.suggestions) {
@@ -1242,7 +1837,7 @@ public class MurmurIME extends InputMethodService {
         if (c == null) return;
         c.setText(label);
         c.setTypeface(strong ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
-        c.setTextColor(strong ? toneColor : getColor(R.color.text));
+        c.setTextColor(strong ? toneColor : tc[Theme.TEXT]);
         c.setEnabled(value != null);
         cellWord[i] = value;
         cellKind[i] = kind;

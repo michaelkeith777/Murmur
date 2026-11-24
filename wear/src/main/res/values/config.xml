@@ -13,4 +13,9 @@
     <item name="tone_list" type="id" />
     <item name="status_row" type="id" />
     <item name="suggestions" type="id" />
+    <item name="rewrite" type="id" />
+    <item name="tools" type="id" />
+    <item name="key_row" type="id" />
+    <item name="panel_scroll" type="id" />
+    <item name="panel_list" type="id" />
 </resources>
