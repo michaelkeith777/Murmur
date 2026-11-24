@@ -40,6 +40,11 @@ final class Prefs {
     /** Speak to translate: the target language, and whether it's on. */
     static final String TRANSLATE_TO = "translate_to";
     static final String TRANSLATE_ON = "translate_on";
+    /** Conversation mode: Michael's own language, whether to read translations aloud, hands-free turns. */
+    static final String CONVO_MINE = "convo_mine";
+    static final String CONVO_SPEAK = "convo_speak";
+    static final String CONVO_HANDS_FREE = "convo_hands_free";
+    static final String CONVO_FACE = "convo_face";
     /** Key height on narrow screens like a foldable's cover screen, in percent (80 to 130). */
     static final String NARROW_KEY_SIZE = "narrow_key_size";
     static final int NARROW_KEY_SIZE_DEFAULT = 110;

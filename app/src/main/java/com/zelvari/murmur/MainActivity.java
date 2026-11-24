@@ -43,6 +43,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        View convo = findViewById(R.id.open_conversation);
+        if (convo != null) convo.setOnClickListener(v ->
+                startActivity(new Intent(this, ConversationActivity.class)));
         Prefs.migrate(this);
 
         stepMic = findViewById(R.id.step_mic);

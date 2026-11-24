@@ -38,6 +38,31 @@ final class Translate {
         Prefs.sp(c).edit().putBoolean(Prefs.TRANSLATE_ON, on).apply();
     }
 
+    /** The language Michael speaks in conversation mode (the other side is {@link #last}). */
+    static String mine(Context c) {
+        String l = Prefs.get(c, Prefs.CONVO_MINE, "English");
+        return code(l) == null ? "English" : l;
+    }
+
+    /** The other person's language in conversation mode: the keyboard's last pick, or Spanish. */
+    static String theirs(Context c) {
+        String l = last(c);
+        return l.isEmpty() ? "Spanish" : l;
+    }
+
+    /** ISO 639-1 code for speech-to-text and the voice ("es"). */
+    static String iso(String language) {
+        String code = code(language);
+        return code == null ? "" : code.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    static java.util.Locale locale(String language) {
+        String iso = iso(language);
+        if (iso.equals("tl")) return new java.util.Locale("fil");
+        if (iso.equals("zh")) return java.util.Locale.SIMPLIFIED_CHINESE;
+        return new java.util.Locale(iso);
+    }
+
     static String code(String language) {
         for (String[] l : LANGUAGES) if (l[0].equals(language)) return l[1];
         return null;

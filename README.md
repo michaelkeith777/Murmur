@@ -27,6 +27,11 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.6
+
+- **Conversation mode:** talk back and forth with someone in another language. Hold 文A and tap 💬 Conversation (or open it from Murmur's settings). Each person taps their own button and talks; Murmur shows and reads it out in the other person's language. Their half of the screen is upside down so it reads right across a table (⇅ turns that off).
+- Each turn ends by itself when the speaker pauses. **Hands-free** starts listening to the other person as soon as a translation has been read out, so you don't have to tap at all. Tap a language to change it, or ⇄ to swap sides.
+
 ## What's new in 1.5
 
 - **Speak to translate:** tap 文A in the top bar and speak in any language; Murmur types it in the language you picked. Hold 文A to choose from 19 languages. The button shows the target (like →ES) while it's on.

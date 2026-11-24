@@ -58,6 +58,13 @@
             android:inputType="textMultiLine|textCapSentences"
             android:minLines="3" />
 
+        <Button
+            android:id="@+id/open_conversation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="💬 Conversation mode: talk with someone in another language" />
+
         <TextView style="@style/Section" android:text="SMART CLEANUP" />
         <Switch
             android:id="@+id/cleanup"

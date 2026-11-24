@@ -1261,6 +1261,9 @@ public class MurmurIME extends InputMethodService {
         title.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
         toneList.addView(title);
         String current = Translate.target(this);
+        if (conversationIntent() != null) {
+            toneList.addView(languageChip("💬 Conversation", 0xFF7C3AED, this::openConversation));
+        }
         if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
             Translate.setOn(this, false);
             paintTranslate();
@@ -1286,6 +1289,24 @@ public class MurmurIME extends InputMethodService {
         tonePicker.setVisibility(View.VISIBLE);
         statusRow.setVisibility(View.INVISIBLE);
         tonePicker.post(() -> tonePicker.scrollTo(0, 0));
+    }
+
+    /** The two-way conversation screen, which only the phone app has (not the watch). */
+    private Intent conversationIntent() {
+        Intent i = new Intent().setClassName(getPackageName(), "com.zelvari.murmur.ConversationActivity");
+        return getPackageManager().resolveActivity(i, 0) == null ? null : i;
+    }
+
+    private void openConversation() {
+        Intent i = conversationIntent();
+        if (i == null) return;
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(i);
+            requestHideSelf(0);
+        } catch (RuntimeException e) {
+            render("Couldn't open conversation mode");
+        }
     }
 
     private TextView languageChip(String text, int color, Runnable pick) {

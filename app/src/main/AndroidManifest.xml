@@ -20,6 +20,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Two-way conversation translate, opened from 文A on the keyboard or from settings. -->
+        <activity
+            android:name=".ConversationActivity"
+            android:exported="false"
+            android:label="Murmur Conversation"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density"
+            android:taskAffinity="com.zelvari.murmur.conversation"
+            android:excludeFromRecents="false" />
+
         <!-- Second launcher icon: assign it to the side key or an edge panel to start dictating. -->
         <activity
             android:name=".DictateActivity"
