@@ -234,8 +234,10 @@ public class MurmurIME extends InputMethodService {
             Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefWatch);
             watchingPrefs = true;
         }
-        paintTranslate();
-        ui.post(() -> showIncoming(false));
+        inputShown = true;
+        editorPkg = info.packageName == null ? "" : info.packageName;
+        incomingExpanded = false;
+        pickChat();
         paintTranslate();
         if (keys != null && root != null) fitWidth(root.getWidth() > 0 ? root.getWidth()
                 : getResources().getDisplayMetrics().widthPixels);
@@ -312,6 +314,7 @@ public class MurmurIME extends InputMethodService {
 
     @Override
     public void onFinishInputView(boolean finishingInput) {
+        inputShown = false;
         if (word.length() > 0) {
             InputConnection ic = getCurrentInputConnection();
             if (ic != null) ic.finishComposingText();
@@ -448,6 +451,7 @@ public class MurmurIME extends InputMethodService {
 
         worker.execute(() -> {
             String text = null;
+            String said = null;
             String edited = null;
             boolean undo = false;
             boolean cleaned = false;
@@ -466,6 +470,7 @@ public class MurmurIME extends InputMethodService {
                     if (edited.isEmpty()) error = "The edit came back empty. Nothing changed";
                 } else {
                     text = raw;
+                    said = raw;
                     if (polish) {
                         String label = !translateTo.isEmpty() ? "Translating to " + translateTo + "…"
                                 : toneRule.isEmpty() ? "Polishing…"
@@ -495,6 +500,7 @@ public class MurmurIME extends InputMethodService {
             file.delete();
 
             final String fText = text;
+            final String fSaid = said;
             final String fEdited = edited;
             final boolean fUndo = undo;
             final String fNote = note;
@@ -533,6 +539,7 @@ public class MurmurIME extends InputMethodService {
                     learnText = null;
                     // So texting mode doesn't translate his own message back when it shows up in a notification.
                     Translate.rememberSent(this, fText);
+                    logMine(fSaid, fText);
                 }
                 if (!inserted) {
                     render("No text field to type into");
@@ -961,6 +968,11 @@ public class MurmurIME extends InputMethodService {
         panelScroll = root.findViewById(R.id.panel_scroll);
         panelList = root.findViewById(R.id.panel_list);
         translateBtn = root.findViewById(R.id.translate);
+        incomingBar = root.findViewById(R.id.incoming_bar);
+        incomingText = root.findViewById(R.id.incoming_text);
+        incomingClose = root.findViewById(R.id.incoming_close);
+        incomingOpen = root.findViewById(R.id.incoming_open);
+        incomingScroll = root.findViewById(R.id.incoming_scroll);
         if (translateBtn != null) {
             translateBtn.setOnClickListener(v -> {
                 closePanel();
@@ -1268,6 +1280,7 @@ public class MurmurIME extends InputMethodService {
             translateBtn.setTextColor(0xFFFFFFFF);
             translateBtn.setBackground(pill(0xFF0EA5E9, true));
         }
+        paintIncoming();
     }
 
     private void showLanguagePicker() {
@@ -1284,13 +1297,13 @@ public class MurmurIME extends InputMethodService {
         toneList.addView(title);
         String current = Translate.target(this);
         final boolean texting = Translate.texting(this);
-        toneList.addView(languageChip(texting ? "📨 Texting mode: on" : "📨 Texting mode",
+        toneList.addView(languageChip(texting ? "📨 Live Translate: on" : "📨 Live Translate",
                 texting ? 0xFF7C3AED : 0xFF475569, () -> {
             Translate.setTexting(this, !texting);
             paintTranslate();
             if (!texting && conversationIntent() != null && !repliesAllowed()) {
                 // One-time setup: Murmur's settings walk him through letting replies translate.
-                render("Texting mode on · one quick step in Murmur so replies translate by themselves");
+                render("Live Translate on · one quick step in Murmur so replies translate by themselves");
                 Intent i = new Intent(this, MainActivity.class);
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 i.putExtra("setup_texting", true);
@@ -1301,9 +1314,9 @@ public class MurmurIME extends InputMethodService {
                 }
                 return;
             }
-            render(!texting ? "Texting mode: write in " + Translate.mine(this) + ", it sends in "
+            render(!texting ? "Live Translate: write in " + Translate.mine(this) + ", it sends in "
                     + Translate.theirs(this) + ". Replies show here in " + Translate.mine(this)
-                    : "Texting mode off");
+                    : "Live Translate off");
         }));
         if (conversationIntent() != null) {
             toneList.addView(languageChip("💬 Conversation", 0xFF7C3AED, this::openConversation));
@@ -1317,9 +1330,17 @@ public class MurmurIME extends InputMethodService {
         for (String[] l : Translate.LANGUAGES) {
             final String name = l[0];
             toneList.addView(languageChip(l[1] + "  " + name, name.equals(current) ? 0xFF0EA5E9 : 0xFF334155, () -> {
+                if (Translate.texting(this) && chat != null) {
+                    // In a chat, the language belongs to that chat; other chats keep theirs.
+                    ChatLog.settings(this, chat, name, false);
+                    pickChat();
+                    paintTranslate();
+                    render("Live Translate: " + chat.title() + " gets " + name);
+                    return;
+                }
                 Translate.set(this, name, true);
                 paintTranslate();
-                render(Translate.texting(this) ? "Texting mode: sends in " + name
+                render(Translate.texting(this) ? "Live Translate: sends in " + name
                         : "Translating to " + name + " · speak in any language");
             }));
         }
@@ -1347,10 +1368,11 @@ public class MurmurIME extends InputMethodService {
                 && (sel == null || sel.length() == 0) && word.length() == 0;
         String to = Translate.theirs(this);
         if (empty) {
-            render("Texting in " + to + " · talk, or type in " + Translate.mine(this)
+            render("Live Translate: " + to + " · talk, or type in " + Translate.mine(this)
                     + " and tap ⇄ to translate it. Hold for options");
             return;
         }
+        translatingTyped = true;
         rewrite("Translate the text into " + to + " the way a native speaker would write this text "
                 + "message. Keep its tone, emoji, names, numbers and links. If it is already in " + to
                 + ", return it unchanged.", "→ " + to);
@@ -1367,22 +1389,168 @@ public class MurmurIME extends InputMethodService {
                 && chats != null && chats.contains("MurmurChatReader");
     }
 
-    /** Shows the latest translated incoming message in the top bar, once, while it's fresh. */
-    private void showIncoming(boolean force) {
-        if (!Translate.texting(this) || recording || busy || status == null) return;
-        long at = Prefs.sp(this).getLong(Prefs.IN_AT, 0);
-        if (at == 0 || (!force && at == shownIncomingAt)) return;
-        if (System.currentTimeMillis() - at > 30 * 60_000L) return;
-        String text = Prefs.get(this, Prefs.IN_TEXT, "");
-        if (text.isEmpty()) return;
-        String from = Prefs.get(this, Prefs.IN_FROM, "");
-        shownIncomingAt = at;
-        render("📩 " + (from.isEmpty() ? "" : from + ": ") + text);
+    /** True while the keyboard is on screen; the open-chat reader shows a bubble only when it isn't. */
+    static volatile boolean inputShown;
+
+    private View incomingBar;
+    private TextView incomingText, incomingClose, incomingOpen;
+    private android.widget.ScrollView incomingScroll;
+    private boolean incomingExpanded;
+    /** The chat's newest message time when he closed the strip; it comes back with the next one. */
+    private long hiddenAt = -1;
+    private String hiddenKey = "";
+    /** The app he's typing in and the chat in it, when Live Translate knows it. */
+    private String editorPkg = "";
+    private ChatLog.Chat chat;
+
+    /** Finds the chat he's typing in and uses its language and switch. */
+    private void pickChat() {
+        chat = Translate.texting(this) && !getPackageName().equals(editorPkg) ? ChatLog.forEditor(this, editorPkg) : null;
+        Translate.chatLang = chat == null ? "" : chat.lang;
+        Translate.chatOff = chat != null && chat.off;
+    }
+
+    /**
+     * Live Translate's strip above the top bar. It shows only while translating. In texting mode
+     * it holds the open chat's thread in his language and stays there (tap to see more of it,
+     * ↗ for the whole history); otherwise it says what's being translated, so translate is never
+     * left on by accident.
+     */
+    private void paintIncoming() {
+        if (incomingBar == null || incomingText == null) return;
+        boolean texting = Translate.texting(this);
+        String to = Translate.target(this);
+        if (!texting && to.isEmpty()) {
+            incomingBar.setVisibility(View.GONE);
+            return;
+        }
+        final ChatLog.Chat ch = texting ? chat : null;
+        boolean hasThread = ch != null && !ch.msgs.isEmpty() && !ch.off
+                && !(ch.key.equals(hiddenKey) && ch.at == hiddenAt);
+        int bg;
+        CharSequence text;
+        String closeLabel;
+        if (hasThread) {
+            text = thread(ch, incomingExpanded ? 20 : 2);
+            bg = 0xFF4C1D95;
+            closeLabel = incomingExpanded ? "▴" : "✕";
+        } else if (ch != null && ch.off) {
+            text = "⇄ Live Translate is off for " + ch.title() + " · tap to turn it on";
+            bg = 0xFF374151;
+            closeLabel = "Off";
+        } else if (texting) {
+            text = "⇄ Live Translate: you write in " + to + ", their replies show here in "
+                    + Translate.mine(this) + (setupMissing() ? " · tap to finish setup" : "");
+            bg = 0xFF2E1065;
+            closeLabel = "Off";
+        } else {
+            text = "→ Translating what you say into " + to;
+            bg = 0xFF075985;
+            closeLabel = "Off";
+        }
+        incomingText.setText(text);
+        incomingText.setMaxLines(hasThread && incomingExpanded ? 200 : 3);
+        incomingText.setEllipsize(hasThread && incomingExpanded ? null : android.text.TextUtils.TruncateAt.END);
+        if (incomingScroll != null) {
+            ViewGroup.LayoutParams lp = incomingScroll.getLayoutParams();
+            lp.height = hasThread && incomingExpanded ? dp(150) : ViewGroup.LayoutParams.WRAP_CONTENT;
+            incomingScroll.setLayoutParams(lp);
+            incomingScroll.post(() -> incomingScroll.fullScroll(View.FOCUS_DOWN));
+        }
+        incomingBar.setBackground(pill(bg, true));
+        incomingBar.setVisibility(View.VISIBLE);
+        if (incomingClose != null) incomingClose.setText(closeLabel);
+        if (incomingOpen != null) incomingOpen.setVisibility(liveIntent() == null ? View.GONE : View.VISIBLE);
+        final boolean fThread = hasThread;
+        View.OnClickListener tap = v -> {
+            if (fThread) {
+                incomingExpanded = !incomingExpanded;
+                paintIncoming();
+            } else if (ch != null && ch.off) {
+                ChatLog.settings(this, ch, null, false);
+                pickChat();
+                paintTranslate();
+                render("Live Translate on for " + ch.title());
+            } else if (Translate.texting(this) && setupMissing()) {
+                Intent i = new Intent(this, MainActivity.class);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                i.putExtra("setup_texting", true);
+                try {
+                    startActivity(i);
+                    requestHideSelf(0);
+                } catch (RuntimeException ignored) {
+                }
+            }
+        };
+        incomingBar.setOnClickListener(tap);
+        incomingText.setOnClickListener(tap);
+        if (incomingOpen != null) incomingOpen.setOnClickListener(v -> openLive(ch == null ? null : ch.key));
+        if (incomingClose != null) incomingClose.setOnClickListener(v -> {
+            if (fThread && incomingExpanded) {
+                incomingExpanded = false;
+            } else if (fThread) {
+                hiddenKey = ch.key;
+                hiddenAt = ch.at;
+                render("Hidden until their next message · ↗ shows the whole chat");
+            } else if (Translate.texting(this)) {
+                Translate.setTexting(this, false);
+                pickChat();
+                render("Live Translate off");
+            } else {
+                Translate.setOn(this, false);
+                render("Translate off");
+            }
+            paintTranslate();
+        });
+    }
+
+    /** The last few messages of a chat, theirs in his language and his own as he said them. */
+    private CharSequence thread(ChatLog.Chat ch, int count) {
+        android.text.SpannableStringBuilder b = new android.text.SpannableStringBuilder();
+        int from = Math.max(0, ch.msgs.size() - count);
+        for (int i = from; i < ch.msgs.size(); i++) {
+            ChatLog.Msg m = ch.msgs.get(i);
+            if (b.length() > 0) b.append('\n');
+            String who = m.mine ? "You" : m.from.isEmpty() ? ch.title() : m.from;
+            int s = b.length();
+            b.append(who).append(": ");
+            b.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), s, b.length(), 0);
+            if (m.mine) b.setSpan(new android.text.style.ForegroundColorSpan(0xFFC4B5FD), s, b.length(), 0);
+            b.append(m.mine && !m.orig.isEmpty() ? m.orig : m.text);
+        }
+        return b;
+    }
+
+    /** Live Translate's screen, which only the phone app has (not the watch). */
+    private Intent liveIntent() {
+        Intent i = new Intent().setClassName(getPackageName(), "com.zelvari.murmur.LiveTranslateActivity");
+        return getPackageManager().resolveActivity(i, 0) == null ? null : i;
+    }
+
+    private void openLive(String key) {
+        Intent i = liveIntent();
+        if (i == null) return;
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (key != null) i.putExtra("chat", key);
+        try {
+            startActivity(i);
+            requestHideSelf(0);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private boolean setupMissing() {
+        return conversationIntent() != null && !repliesAllowed();
     }
 
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener prefWatch = (sp, key) -> {
-        if (!Prefs.IN_AT.equals(key)) return;
-        ui.post(() -> { if (isInputViewShown()) showIncoming(false); });
+        if (!Prefs.IN_AT.equals(key) && !Prefs.CHAT_OPEN_AT.equals(key)) return;
+        ui.post(() -> {
+            String before = chat == null ? "" : chat.key;
+            pickChat();
+            if (!before.equals(chat == null ? "" : chat.key)) incomingExpanded = false;
+            paintTranslate();
+        });
     };
     private boolean watchingPrefs;
 
@@ -1445,7 +1613,23 @@ public class MurmurIME extends InputMethodService {
     }
 
     /** Rewrites the selection, or the whole message when nothing is selected. */
+    private boolean translatingTyped;
+
+    /** Adds what he just sent to the open chat's Live Translate thread, with what he said. */
+    private void logMine(String said, String sent) {
+        if (!Translate.texting(this) || chat == null || sent == null || sent.trim().isEmpty()) return;
+        String app = editorPkg;
+        try {
+            app = getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(editorPkg, 0)).toString();
+        } catch (Exception ignored) {
+        }
+        ChatLog.add(this, chat.pkg, app, chat.name, "", said == null ? "" : said.trim(), sent.trim(), true);
+        pickChat();
+    }
+
     private void rewrite(String instruction, String label) {
+        final boolean translation = translatingTyped;
+        translatingTyped = false;
         if (busy || recording) return;
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
@@ -1511,6 +1695,7 @@ public class MurmurIME extends InputMethodService {
                 }
                 boolean ok = fSelection ? replaceTarget(fTarget, true, fOut) : replaceAll(fTarget, fStart, fOut);
                 if (ok && Translate.texting(this)) Translate.rememberSent(this, fOut);
+                if (ok && translation) logMine(fTarget, fOut);
                 render(ok ? "Rewritten · ↶ brings back the original" : "The text changed, so I left it as it was");
             });
         });

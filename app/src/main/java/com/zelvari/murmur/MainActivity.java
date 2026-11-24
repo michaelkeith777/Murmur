@@ -47,6 +47,9 @@ public class MainActivity extends Activity {
         View convo = findViewById(R.id.open_conversation);
         if (convo != null) convo.setOnClickListener(v ->
                 startActivity(new Intent(this, ConversationActivity.class)));
+        View live = findViewById(R.id.open_live);
+        if (live != null) live.setOnClickListener(v ->
+                startActivity(new Intent(this, LiveTranslateActivity.class)));
         Prefs.migrate(this);
 
         stepMic = findViewById(R.id.step_mic);

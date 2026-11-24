@@ -53,6 +53,8 @@ final class Prefs {
     static final String IN_APP = "in_app";
     static final String IN_AT = "in_at";
     static final String SENT_RECENT = "sent_recent";
+    /** When the open-chat reader last saw a different chat open (so the keyboard strip redraws). */
+    static final String CHAT_OPEN_AT = "chat_open_at";
     /** Texting mode diagnostics, shown in settings: when the reader connected and what it last did. */
     static final String DIAG_CONNECTED = "diag_connected";
     static final String DIAG_LAST = "diag_last";

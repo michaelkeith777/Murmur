@@ -45,7 +45,6 @@ public class MurmurNotifications extends NotificationListenerService {
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
     /** Messages already handled, so an updated notification isn't translated twice. */
     private static final ArrayDeque<String> seen = new ArrayDeque<>();
-    private static int nextId = 1000;
 
     /** True the first time a message is seen, from a notification or the open chat; false after. */
     static boolean claim(String text) {
@@ -104,8 +103,8 @@ public class MurmurNotifications extends NotificationListenerService {
         if (!chat) return;
 
         String from = null, text = null;
-        CharSequence title = x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
-        if (title == null) title = x.getCharSequence(Notification.EXTRA_TITLE);
+        CharSequence convo = x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
+        CharSequence title = convo != null ? convo : x.getCharSequence(Notification.EXTRA_TITLE);
         if (messages != null && messages.length > 0 && messages[messages.length - 1] instanceof Bundle) {
             Bundle last = (Bundle) messages[messages.length - 1];
             CharSequence t = last.getCharSequence("text");
@@ -148,16 +147,34 @@ public class MurmurNotifications extends NotificationListenerService {
         final String base = b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
         final String model = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
         final String mine = Translate.mine(this);
-        final String fFrom = from, fText = text, app = appName(pkg);
+        // The chat: a group's name, or the person for a one-to-one chat.
+        String chatName = convo != null ? convo.toString() : title != null ? title.toString() : from;
+        ChatLog.Chat ch = ChatLog.get(this, ChatLog.key(pkg, chatName));
+        if (ch != null && ch.off) {
+            note(this, appName(pkg) + ": Live Translate is off for " + ch.title());
+            return;
+        }
+        final String fFrom = from, fText = text, app = appName(pkg), fChat = chatName, fPkg = test ? getPackageName() : pkg;
         final PendingIntent open = test ? null : n.contentIntent;
         final Context ctx = getApplicationContext();
         note(this, app + ": translating a message from " + (from.isEmpty() ? "someone" : from) + "…");
-        worker.execute(() -> handle(ctx, base, key, model, mine, fFrom, fText, app, open));
+        worker.execute(() -> handle(ctx, base, key, model, mine, fPkg, fChat, fFrom, fText, app, open, false));
     }
 
     /** Translates one message and shows it; shared with the settings screen's test button. */
     static void handle(Context ctx, String base, String key, String model, String mine,
                        String from, String text, String app, PendingIntent open) {
+        handle(ctx, base, key, model, mine, ctx.getPackageName(), from, from, text, app, open, false);
+    }
+
+    /**
+     * Translates one message into his language and adds it to that chat's Live Translate thread.
+     * {@code onScreen}: the reply is in the chat he has open, so the keyboard strip or the
+     * floating bubble shows it; otherwise the chat's notification does.
+     */
+    static void handle(Context ctx, String base, String key, String model, String mine, String pkg,
+                       String chatName, String from, String text, String app, PendingIntent open,
+                       boolean onScreen) {
         try {
             String out = AiClient.toMine(base, key, model, text, mine);
             if (out.isEmpty()) {
@@ -165,44 +182,68 @@ public class MurmurNotifications extends NotificationListenerService {
                 return;
             }
             Translate.saveIncoming(ctx, from, out, app);
-            boolean shown = post(ctx, from, out, text, open);
+            ChatLog.Chat ch = ChatLog.add(ctx, pkg, app, chatName, from, text, out, false);
+            if (onScreen) {
+                MurmurChatReader.bubble(ch.key);
+                note(ctx, app + ": translated a new message in the open chat");
+                return;
+            }
+            boolean shown = post(ctx, ch, open);
             note(ctx, app + ": translated a message from " + (from.isEmpty() ? "someone" : from)
-                    + (shown ? "" : " (Murmur's notifications are off, so it's only on the keyboard)"));
+                    + (shown ? "" : " (Murmur's notifications are off, so it's in Live Translate only)"));
         } catch (Exception e) {
             String m = e.getMessage();
             note(ctx, app + ": couldn't translate (" + (m == null ? "network problem" : m) + ")");
         }
     }
 
-    static boolean post(Context c, String from, String english, String original, PendingIntent open) {
+    /** Opens Live Translate on one chat. */
+    static PendingIntent openChat(Context c, String key) {
+        Intent i = new Intent(c, LiveTranslateActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(LiveTranslateActivity.EXTRA_CHAT, key);
+        return PendingIntent.getActivity(c, key.hashCode(), i,
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+    }
+
+    /**
+     * One notification per chat that keeps the chat's latest messages in his language. It stays
+     * until he taps or clears it, and each new message updates it.
+     */
+    static boolean post(Context c, ChatLog.Chat ch, PendingIntent open) {
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (nm == null) return false;
         if (nm.getNotificationChannel(CHANNEL) == null) {
-            NotificationChannel ch = new NotificationChannel(CHANNEL, "Translated messages",
+            NotificationChannel nc = new NotificationChannel(CHANNEL, "Translated messages",
                     NotificationManager.IMPORTANCE_HIGH);
-            ch.setDescription("Texting mode: messages you get in another language, in yours");
-            nm.createNotificationChannel(ch);
+            nc.setDescription("Live Translate: messages you get in another language, in yours");
+            nm.createNotificationChannel(nc);
         }
         if (!nm.areNotificationsEnabled()) return false;
-        NotificationChannel ch = nm.getNotificationChannel(CHANNEL);
-        if (ch != null && ch.getImportance() == NotificationManager.IMPORTANCE_NONE) return false;
-        if (open == null) {
-            Intent i = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            open = PendingIntent.getActivity(c, 0, i, PendingIntent.FLAG_IMMUTABLE);
+        NotificationChannel nc = nm.getNotificationChannel(CHANNEL);
+        if (nc != null && nc.getImportance() == NotificationManager.IMPORTANCE_NONE) return false;
+        PendingIntent live = openChat(c, ch.key);
+        if (open == null) open = live;
+        ChatLog.Msg last = ch.msgs.get(ch.msgs.size() - 1);
+        String title = ch.title() + " · in " + Translate.mine(c);
+        Notification.InboxStyle inbox = new Notification.InboxStyle().setBigContentTitle(title);
+        int from = Math.max(0, ch.msgs.size() - 6);
+        for (int i = from; i < ch.msgs.size(); i++) {
+            ChatLog.Msg m = ch.msgs.get(i);
+            String who = m.mine ? "You" : m.from.isEmpty() ? ch.title() : m.from;
+            inbox.addLine(who + ": " + (m.mine && !m.orig.isEmpty() ? m.orig : m.text));
         }
-        String title = (from == null || from.isEmpty() ? "Message" : from) + " · in " + Translate.mine(c);
         Notification.Builder nb = new Notification.Builder(c, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(title)
-                .setContentText(english)
-                .setStyle(new Notification.BigTextStyle().bigText(english + "\n\n“" + original + "”"))
+                .setContentText((last.from.isEmpty() ? "" : last.from + ": ") + last.text)
+                .setStyle(inbox)
                 .setCategory(Notification.CATEGORY_MESSAGE)
                 .setContentIntent(open)
+                .addAction(new Notification.Action.Builder(null, "Live Translate", live).build())
                 .setAutoCancel(true);
         try {
-            synchronized (seen) {
-                nm.notify(nextId++, nb.build());
-            }
+            nm.notify(2000 + (ch.key.hashCode() & 0xFFFF), nb.build());
             return true;
         } catch (SecurityException e) {
             return false;

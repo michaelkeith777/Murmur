@@ -21,6 +21,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Live Translate: each chat's messages in your language. Its own icon, so it feels like an app. -->
+        <activity
+            android:name=".LiveTranslateActivity"
+            android:exported="true"
+            android:label="Live Translate"
+            android:launchMode="singleTop"
+            android:taskAffinity="com.zelvari.murmur.live">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Two-way conversation translate, opened from 文A on the keyboard or from settings. -->
         <activity
             android:name=".ConversationActivity"

@@ -27,6 +27,27 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.8
+
+- **Live Translate, linked to every chat.** Texting mode now keeps a thread for each chat
+  (WhatsApp, Samsung Messages, Google Messages and more): their messages in your language with
+  what they wrote, and what you sent with what you said. It's a screen of its own in the app,
+  with its own Live Translate icon, and stays on the phone only, with clear-per-chat and
+  clear-all.
+- **The open chat's messages stay on the keyboard.** A strip above the keys shows that chat's
+  latest messages in your language. Tap it to scroll back through more, ↗ opens the whole chat
+  in Live Translate, ✕ hides it until their next message.
+- **Open-chat reader.** Replies in the chat you have open (which post no notification) are read
+  from the screen, with a fallback for when WhatsApp renames its views.
+- **A floating bubble that stays.** With the keyboard closed, a new reply shows at the top of the
+  screen until you close it; ▾ More opens the chat's recent messages.
+- **One notification per chat** that keeps its latest messages and stays until you tap or clear it.
+- **Each chat has its own language and on/off switch.** Pick a language on the keyboard while in a
+  chat and it sticks to that chat.
+- **Translate is obvious when it's on.** The strip says what's being translated and has an Off
+  button, so it's never left on by accident.
+- Setup explains Android's "Allow restricted settings" step for apps installed from a file.
+
 ## What's new in 1.7.1
 
 - **Replies now come back translated:** Murmur asks for permission to show notifications before anything else, so the English version can actually pop up (on Android 13 and newer that was getting lost). WhatsApp's notifications are read more reliably, and Murmur's own messages are no longer mistaken for replies.

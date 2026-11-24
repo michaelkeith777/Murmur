@@ -65,7 +65,13 @@
             android:layout_marginTop="10dp"
             android:text="💬 Conversation mode: talk with someone in another language" />
 
-        <TextView style="@style/Section" android:text="TEXTING MODE" />
+        <TextView style="@style/Section" android:text="TEXTING MODE · LIVE TRANSLATE" />
+        <Button
+            android:id="@+id/open_live"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="📨 Open Live Translate: each chat's messages in your language" />
         <Switch
             android:id="@+id/texting"
             style="@style/Label"

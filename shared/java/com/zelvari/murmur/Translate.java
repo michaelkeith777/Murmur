@@ -17,9 +17,13 @@ final class Translate {
 
     /** The language dictation is translated into right now, or "" when translate is off. */
     static String target(Context c) {
-        if (texting(c)) return theirs(c);
+        if (texting(c)) return chatOff ? "" : theirs(c);
         return Prefs.flag(c, Prefs.TRANSLATE_ON, false) ? last(c) : "";
     }
+
+    /** The chat he's typing in: its own language ("" for the default) and whether it's switched off. */
+    static volatile String chatLang = "";
+    static volatile boolean chatOff;
 
     /** Texting mode: send in their language, read their replies in yours. */
     static boolean texting(Context c) {
@@ -87,6 +91,14 @@ final class Translate {
 
     /** The other person's language in conversation mode: the keyboard's last pick, or Spanish. */
     static String theirs(Context c) {
+        String cl = chatLang;
+        if (!cl.isEmpty() && code(cl) != null) return cl;
+        String l = last(c);
+        return l.isEmpty() ? "Spanish" : l;
+    }
+
+    /** The language new chats send in (ignoring the open chat's own choice). */
+    static String theirsDefault(Context c) {
         String l = last(c);
         return l.isEmpty() ? "Spanish" : l;
     }

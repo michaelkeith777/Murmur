@@ -89,6 +89,12 @@ public class MurmurChatReader extends AccessibilityService {
         } catch (RuntimeException ignored) {
             return;
         }
+        // Only a chat screen (one with a box to type in) counts, not the list of chats.
+        boolean chatScreen = !bubbles.isEmpty() || hasTypingBox(root, 0);
+        if (bubbles.isEmpty() && chatScreen) collectFallback(root, bubbles, 0);
+        // Tells the keyboard which chat is open, so its strip shows that chat's thread.
+        final String from = chatScreen ? chatName(root, pkg) : "";
+        ChatLog.setOpen(this, pkg, from);
         if (!pkg.equals(chatPkg)) onScreen.clear();
         chatPkg = pkg;
         if (bubbles.isEmpty()) return;
@@ -117,10 +123,210 @@ public class MurmurChatReader extends AccessibilityService {
         final String base = b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
         final String model = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
         final String mine = Translate.mine(this);
-        final String app = label(pkg.toString());
+        final String app = label(pkg);
         final Context ctx = getApplicationContext();
+        ChatLog.Chat ch = ChatLog.get(this, ChatLog.key(pkg, from));
+        if (ch != null && ch.off) return;
         MurmurNotifications.note(this, app + " (open chat): translating a new message…");
-        worker.execute(() -> MurmurNotifications.handle(ctx, base, apiKey, model, mine, "", newest, app, null));
+        worker.execute(() -> MurmurNotifications.handle(ctx, base, apiKey, model, mine, pkg, from, from, newest, app, null, true));
+    }
+
+    private static final java.util.regex.Pattern NOT_A_MESSAGE = java.util.regex.Pattern.compile(
+            "(?i)^(\\d{1,2}:\\d{2}( ?[ap]\\.? ?m\\.?)?|today|yesterday|hoy|ayer|\\d+ unread messages?|message|mensaje|"
+            + "edited|editado|online|en l[ií]nea|typing…|escribiendo…|\\d+:\\d+)$");
+
+    /**
+     * When an app update renames its bubble views, fall back to the text inside the chat's
+     * scrolling list, skipping times, dates, buttons and the box he types in.
+     */
+    private void collectFallback(AccessibilityNodeInfo n, List<String> out, int depth) {
+        if (n == null || depth > 40) return;
+        String cls = n.getClassName() == null ? "" : n.getClassName().toString();
+        if (n.isEditable() || cls.endsWith("EditText") || cls.endsWith("Button")) return;
+        boolean inList = depth > 0 && (cls.contains("RecyclerView") || cls.contains("ListView"));
+        if (inList) {
+            collectTexts(n, out, 0);
+            return;
+        }
+        for (int i = 0; i < n.getChildCount(); i++) {
+            try {
+                collectFallback(n.getChild(i), out, depth + 1);
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private void collectTexts(AccessibilityNodeInfo n, List<String> out, int depth) {
+        if (n == null || depth > 30) return;
+        String cls = n.getClassName() == null ? "" : n.getClassName().toString();
+        if (n.isEditable() || cls.endsWith("Button") || cls.endsWith("ImageView")) return;
+        CharSequence t = n.getText();
+        if (t != null && cls.endsWith("TextView")) {
+            String s = t.toString().trim();
+            if (s.length() > 1 && !NOT_A_MESSAGE.matcher(s).matches()) out.add(s);
+        }
+        for (int i = 0; i < n.getChildCount(); i++) {
+            try {
+                collectTexts(n.getChild(i), out, depth + 1);
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private boolean hasTypingBox(AccessibilityNodeInfo n, int depth) {
+        if (n == null || depth > 40) return false;
+        if (n.isEditable()) return true;
+        for (int i = 0; i < n.getChildCount(); i++) {
+            try {
+                if (hasTypingBox(n.getChild(i), depth + 1)) return true;
+            } catch (RuntimeException ignored) {
+            }
+        }
+        return false;
+    }
+
+    /** The open chat's name from the app's title bar, if it can be found. */
+    private String chatName(AccessibilityNodeInfo root, String pkg) {
+        String[] ids = {pkg + ":id/conversation_contact_name", pkg + ":id/conversation_title",
+                pkg + ":id/toolbar_title", pkg + ":id/title"};
+        for (String id : ids) {
+            try {
+                List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
+                if (nodes != null && !nodes.isEmpty() && nodes.get(0).getText() != null) {
+                    return nodes.get(0).getText().toString().trim();
+                }
+            } catch (RuntimeException ignored) {
+            }
+        }
+        return "";
+    }
+
+    // ---- floating bubble -------------------------------------------------------------
+
+    private static MurmurChatReader instance;
+    private android.view.View bubble;
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        instance = this;
+    }
+
+    @Override
+    public boolean onUnbind(android.content.Intent intent) {
+        instance = null;
+        return super.onUnbind(intent);
+    }
+
+    /**
+     * Shows the chat's newest message in his language at the top of the screen while the keyboard
+     * is closed (the keyboard's strip shows it when it's open). It stays until he closes it; a tap
+     * opens the chat's recent messages, and the next message updates it.
+     */
+    static void bubble(String chatKey) {
+        MurmurChatReader s = instance;
+        if (s == null || MurmurIME.inputShown) return;
+        s.ui.post(() -> s.showBubble(chatKey, s.bubbleKey != null && s.bubbleKey.equals(chatKey) && s.bubbleOpen));
+    }
+
+    private String bubbleKey;
+    private boolean bubbleOpen;
+
+    private void showBubble(String chatKey, boolean expanded) {
+        ChatLog.Chat ch = ChatLog.get(this, chatKey);
+        if (ch == null || ch.msgs.isEmpty()) return;
+        removeBubble();
+        android.view.WindowManager wm = getSystemService(android.view.WindowManager.class);
+        if (wm == null) return;
+        float d = getResources().getDisplayMetrics().density;
+        int pad = Math.round(12 * d);
+
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        box.setPadding(pad, pad, pad, pad / 2);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xF22E1065);
+        bg.setCornerRadius(pad * 1.6f);
+        box.setBackground(bg);
+
+        android.widget.TextView t = new android.widget.TextView(this);
+        t.setTextColor(0xFFFFFFFF);
+        t.setTextSize(15);
+        t.setLineSpacing(2 * d, 1f);
+        StringBuilder b = new StringBuilder();
+        int count = expanded ? 12 : 1;
+        for (int i = Math.max(0, ch.msgs.size() - count); i < ch.msgs.size(); i++) {
+            ChatLog.Msg m = ch.msgs.get(i);
+            if (b.length() > 0) b.append("\n");
+            String who = m.mine ? "You" : m.from.isEmpty() ? ch.title() : m.from;
+            b.append(who).append(": ").append(m.mine && !m.orig.isEmpty() ? m.orig : m.text);
+        }
+        t.setText("💬 " + b);
+        if (!expanded) t.setMaxLines(4);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(t);
+        box.addView(scroll, new android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                expanded ? Math.round(240 * d) : android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        if (expanded) scroll.post(() -> scroll.fullScroll(android.view.View.FOCUS_DOWN));
+
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this);
+        row.setGravity(android.view.Gravity.END);
+        row.addView(bubbleButton(expanded ? "▴ Less" : "▾ More", v -> {
+            bubbleOpen = !expanded;
+            showBubble(chatKey, !expanded);
+        }));
+        row.addView(bubbleButton("Open in Murmur", v -> {
+            removeBubble();
+            try {
+                MurmurNotifications.openChat(this, chatKey).send();
+            } catch (Exception ignored) {
+            }
+        }));
+        row.addView(bubbleButton("✕ Close", v -> removeBubble()));
+        box.addView(row);
+        t.setOnClickListener(v -> {
+            bubbleOpen = !expanded;
+            showBubble(chatKey, !expanded);
+        });
+
+        android.view.WindowManager.LayoutParams lp = new android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+                android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                android.graphics.PixelFormat.TRANSLUCENT);
+        lp.gravity = android.view.Gravity.TOP;
+        lp.y = Math.round(86 * d);
+        lp.horizontalMargin = 0.03f;
+        try {
+            wm.addView(box, lp);
+            bubble = box;
+            bubbleKey = chatKey;
+            bubbleOpen = expanded;
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private android.widget.TextView bubbleButton(String label, android.view.View.OnClickListener l) {
+        android.widget.TextView b = new android.widget.TextView(this);
+        b.setText(label);
+        b.setTextColor(0xFFDDD6FE);
+        b.setTextSize(14);
+        int p = Math.round(10 * getResources().getDisplayMetrics().density);
+        b.setPadding(p, p, p, p / 2);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private void removeBubble() {
+        if (bubble == null) return;
+        try {
+            getSystemService(android.view.WindowManager.class).removeView(bubble);
+        } catch (RuntimeException ignored) {
+        }
+        bubble = null;
     }
 
     private String label(String pkg) {
@@ -137,6 +343,8 @@ public class MurmurChatReader extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        removeBubble();
+        instance = null;
         worker.shutdownNow();
         super.onDestroy();
     }
