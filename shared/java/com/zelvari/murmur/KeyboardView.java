@@ -50,6 +50,15 @@ public class KeyboardView extends View {
 
         /** The finished swipe, in key units: x / key width, y / letter row height from row 1. */
         void onSwipe(float[] xs, float[] ys, int n);
+
+        /** Sliding along the space bar: move the cursor one character left (-1) or right (+1). */
+        void onCursorMove(int dir);
+
+        /** Sliding left from backspace: select this many words back (0 = none). */
+        void onDeleteSlide(int words);
+
+        /** The backspace slide ended; delete what's selected if {@code commit}. */
+        void onDeleteSlideEnd(boolean commit);
     }
 
     static final int CHAR = 0, SHIFT = 1, DEL = 2, MODE = 3, SWITCH = 4, SPACE = 5, ENTER = 6;
@@ -114,6 +123,8 @@ public class KeyboardView extends View {
         long downAt;
         boolean longFired;
         boolean upActionDone;
+        boolean sliding;
+        int slideSteps;
     }
 
     private final SparseArray<Touch> touches = new SparseArray<>();
@@ -500,6 +511,7 @@ public class KeyboardView extends View {
                     }
                     return true;
                 }
+                if (touches.size() == 1 && slide(e)) return true;
                 if (!swipeOn || symbols || touches.size() != 1) return true;
                 int id = touches.keyAt(0);
                 Touch t = touches.valueAt(0);
@@ -531,6 +543,12 @@ public class KeyboardView extends View {
                 return true;
             }
             case MotionEvent.ACTION_CANCEL: {
+                for (int i = 0; i < touches.size(); i++) {
+                    Touch t = touches.valueAt(i);
+                    if (t.sliding && t.key != null && t.key.kind == DEL && listener != null) {
+                        listener.onDeleteSlideEnd(false);
+                    }
+                }
                 touches.clear();
                 swiping = false;
                 swipePointer = -1;
@@ -544,6 +562,51 @@ public class KeyboardView extends View {
             default:
                 return true;
         }
+    }
+
+    /**
+     * Space bar and backspace slides. Space: slide sideways to move the cursor. Backspace:
+     * slide left to select whole words, then lift to delete them. Returns true while sliding.
+     */
+    private boolean slide(MotionEvent e) {
+        int id = touches.keyAt(0);
+        Touch t = touches.valueAt(0);
+        if (t.key == null || (t.key.kind != SPACE && t.key.kind != DEL)) return false;
+        int idx = e.findPointerIndex(id);
+        if (idx < 0) return false;
+        float x = e.getX(idx);
+        float dx = x - t.downX;
+        if (t.key.kind == SPACE) {
+            if (!t.sliding) {
+                if (Math.abs(dx) < keyW * 0.45f) return false;
+                t.sliding = true;
+                t.upActionDone = true; // no space when the finger lifts
+                removeCallbacks(longPress);
+            }
+            float step = Math.max(keyW * 0.32f, 8 * density);
+            int steps = (int) (dx / step);
+            while (t.slideSteps != steps && listener != null) {
+                int dir = steps > t.slideSteps ? 1 : -1;
+                t.slideSteps += dir;
+                listener.onCursorMove(dir);
+                if (hapticsOn) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            }
+            return true;
+        }
+        // Backspace
+        if (!t.sliding) {
+            if (dx > -keyW * 0.7f) return false;
+            t.sliding = true;
+            removeCallbacks(deleteRepeat);
+        }
+        float back = -dx;
+        int words = back < keyW * 0.35f ? 0 : 1 + (int) Math.max(0, (back - keyW * 0.7f) / (keyW * 0.75f));
+        if (words != t.slideSteps && listener != null) {
+            t.slideSteps = words;
+            listener.onDeleteSlide(words);
+            if (hapticsOn) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+        }
+        return true;
     }
 
     private static boolean isLetter(Key k) {
@@ -586,6 +649,7 @@ public class KeyboardView extends View {
     /** Up: space, enter and the keyboard switch act when the finger lifts. */
     private void release(Touch t) {
         if (t.key.kind == DEL) removeCallbacks(deleteRepeat);
+        if (t.sliding && t.key.kind == DEL && listener != null) listener.onDeleteSlideEnd(true);
         if (t.key == preview) {
             removeCallbacks(hidePreview);
             postDelayed(hidePreview, 60);

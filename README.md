@@ -27,6 +27,13 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.5
+
+- **Speak to translate:** tap 文A in the top bar and speak in any language; Murmur types it in the language you picked. Hold 文A to choose from 19 languages. The button shows the target (like →ES) while it's on.
+- **Space bar cursor:** slide your finger along the space bar to move the cursor one letter at a time.
+- **Slide to delete words:** slide left from backspace to select whole words, then lift to delete them. Slide back to cancel.
+- **Suggestions, not surprises:** auto-correct no longer changes words by itself. Your word and the best fixes show above the keys; tap one to use it, and Murmur remembers what you pick. You can turn auto-correct back on in settings.
+
 ## What's new in 1.4.4
 
 - **Edge to edge on narrow screens:** no side padding, thinner gaps between keys, bigger letters, keys 10% taller by default, and the tone chip shrinks to its emoji. One-handed mode now only applies on wide screens.

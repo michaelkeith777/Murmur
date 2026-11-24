@@ -4,6 +4,7 @@
     <!-- Keys the shared keyboard code looks for but the watch layout leaves out. -->
     <item name="k_space" type="id" />
     <item name="mic_col" type="id" />
+    <item name="translate" type="id" />
     <item name="k_comma" type="id" />
     <item name="k_period" type="id" />
     <item name="k_switch" type="id" />

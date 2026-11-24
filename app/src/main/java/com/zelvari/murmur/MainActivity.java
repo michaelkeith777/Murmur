@@ -213,7 +213,7 @@ public class MainActivity extends Activity {
         commands.setChecked(Prefs.flag(this, Prefs.COMMANDS, true));
         learn.setChecked(Prefs.flag(this, Prefs.LEARN, true));
         learnStyle.setChecked(Prefs.flag(this, Prefs.LEARN_STYLE, true));
-        autocorrect.setChecked(Prefs.flag(this, Prefs.AUTOCORRECT, true));
+        autocorrect.setChecked(Prefs.flag(this, Prefs.AUTO_REPLACE, false));
         swipe.setChecked(Prefs.flag(this, Prefs.SWIPE, true));
         keyVibrate.setChecked(Prefs.flag(this, Prefs.KEY_VIBRATE, true));
         keySound.setChecked(Prefs.flag(this, Prefs.KEY_SOUND, false));
@@ -259,7 +259,7 @@ public class MainActivity extends Activity {
                 .putBoolean(Prefs.COMMANDS, commands.isChecked())
                 .putBoolean(Prefs.LEARN, learn.isChecked())
                 .putBoolean(Prefs.LEARN_STYLE, learnStyle.isChecked())
-                .putBoolean(Prefs.AUTOCORRECT, autocorrect.isChecked())
+                .putBoolean(Prefs.AUTO_REPLACE, autocorrect.isChecked())
                 .putBoolean(Prefs.SWIPE, swipe.isChecked())
                 .putBoolean(Prefs.KEY_VIBRATE, keyVibrate.isChecked())
                 .putBoolean(Prefs.KEY_SOUND, keySound.isChecked())

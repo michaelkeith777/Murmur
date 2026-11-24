@@ -94,10 +94,10 @@
         <Switch
             android:id="@+id/autocorrect"
             style="@style/Label"
-            android:text="Autocorrect and word suggestions" />
+            android:text="Auto-correct typos by itself" />
         <TextView
             style="@style/Hint"
-            android:text="Fixes typos when you hit space. Backspace right after a fix puts back what you typed, and Murmur stops changing that word. Your vocabulary words are never corrected." />
+            android:text="Off: Murmur never changes a word on its own. It shows your word and the best fixes above the keys, and only swaps one in when you tap it. It learns which fix you pick. On: it fixes typos when you hit space, and backspace right after puts back what you typed." />
         <Switch
             android:id="@+id/swipe"
             style="@style/Label"

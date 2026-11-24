@@ -230,6 +230,7 @@ public class MurmurIME extends InputMethodService {
         readTypingOptions(info);
         closePanel();
         if (keys != null) refreshLook();
+        paintTranslate();
         if (keys != null && root != null) fitWidth(root.getWidth() > 0 ? root.getWidth()
                 : getResources().getDisplayMetrics().widthPixels);
         if (keys != null) {
@@ -408,8 +409,10 @@ public class MurmurIME extends InputMethodService {
         final String llmModel = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
         final String tone = Tones.current(this);
         final String toneRule = Tones.rule(tone);
-        // Picking a tone on the keyboard turns the AI pass on even if plain cleanup is off.
-        final boolean polish = Prefs.flag(this, Prefs.CLEANUP, true) || !toneRule.isEmpty();
+        final String translateTo = Translate.target(this);
+        // Picking a tone or a translation on the keyboard turns the AI pass on even if plain cleanup is off.
+        final boolean polish = Prefs.flag(this, Prefs.CLEANUP, true) || !toneRule.isEmpty()
+                || !translateTo.isEmpty();
         final String style = Prefs.get(this, Prefs.STYLE, "");
         final String vocab = Prefs.get(this, Prefs.VOCAB, "");
         final String sttHint = Learn.sttHint(this);
@@ -457,18 +460,21 @@ public class MurmurIME extends InputMethodService {
                 } else {
                     text = raw;
                     if (polish) {
-                        String label = toneRule.isEmpty() ? "Polishing…"
+                        String label = !translateTo.isEmpty() ? "Translating to " + translateTo + "…"
+                                : toneRule.isEmpty() ? "Polishing…"
                                 : "Writing it " + Tones.emoji(tone) + " " + Tones.label(tone) + "…";
                         ui.post(() -> { if (gen == generation) render(label); });
                         try {
                             String out = AiClient.cleanup(base, key, llmModel, raw, style, vocab,
-                                    learned, samples, app, toneRule);
+                                    learned, translateTo.isEmpty() ? samples : "", app, toneRule, translateTo);
                             if (!out.isEmpty()) {
                                 text = out;
                                 cleaned = true;
                             }
                         } catch (Exception e) {
-                            note = "Inserted unpolished text (cleanup failed: " + e.getMessage() + ")";
+                            note = translateTo.isEmpty()
+                                    ? "Inserted unpolished text (cleanup failed: " + e.getMessage() + ")"
+                                    : "Couldn't translate, so I typed what you said (" + e.getMessage() + ")";
                         }
                     }
                     // Without the AI pass, still apply the spellings the user taught us.
@@ -487,7 +493,8 @@ public class MurmurIME extends InputMethodService {
             final String fNote = note;
             final String fError = error;
             // Only the user's own voice is a style sample, not pirate or Shakespeare.
-            final boolean sample = Tones.AUTO.equals(tone) || Tones.CASUAL.equals(tone);
+            final boolean sample = translateTo.isEmpty() && (Tones.AUTO.equals(tone) || Tones.CASUAL.equals(tone));
+            final boolean translated = !translateTo.isEmpty();
             ui.post(() -> {
                 if (gen != generation) return;
                 busy = false;
@@ -514,6 +521,8 @@ public class MurmurIME extends InputMethodService {
                     return;
                 }
                 boolean inserted = insert(fText);
+                // Your fixes to a translation aren't spelling lessons for your own language.
+                if (inserted && translated) learnText = null;
                 if (!inserted) {
                     render("No text field to type into");
                 } else {
@@ -935,6 +944,27 @@ public class MurmurIME extends InputMethodService {
         keyRow = root.findViewById(R.id.key_row);
         panelScroll = root.findViewById(R.id.panel_scroll);
         panelList = root.findViewById(R.id.panel_list);
+        translateBtn = root.findViewById(R.id.translate);
+        if (translateBtn != null) {
+            translateBtn.setOnClickListener(v -> {
+                closePanel();
+                if (recording || busy) return;
+                if (!Translate.picked(this)) {
+                    showLanguagePicker();
+                } else {
+                    boolean on = Translate.target(this).isEmpty();
+                    Translate.setOn(this, on);
+                    paintTranslate();
+                    render(on ? "Translating to " + Translate.last(this) + " · speak in any language"
+                            : "Translate off");
+                }
+            });
+            translateBtn.setOnLongClickListener(v -> {
+                closePanel();
+                showLanguagePicker();
+                return true;
+            });
+        }
         if (rewriteBtn != null) rewriteBtn.setOnClickListener(v -> {
             closePanel();
             showRewritePicker();
@@ -985,6 +1015,7 @@ public class MurmurIME extends InputMethodService {
             undo.setBackground(keyBg(tc[Theme.SURFACE]));
             ((TextView) undo).setTextColor(tc[Theme.TEXT]);
         }
+        paintTranslate();
         for (TextView b : new TextView[]{rewriteBtn, toolsBtn}) {
             if (b == null) continue;
             b.setBackground(keyBg(tc[Theme.SURFACE]));
@@ -1060,6 +1091,7 @@ public class MurmurIME extends InputMethodService {
             bar.addView(mic, ml);
             column.setVisibility(View.GONE);
             setButtonWidth(rewriteBtn, 36);
+            setButtonWidth(translateBtn, 38);
             setButtonWidth(toolsBtn, 36);
             if (toneChip != null) toneChip.setPadding(dp(8), 0, dp(8), 0);
             paintToneChip(false);
@@ -1074,6 +1106,7 @@ public class MurmurIME extends InputMethodService {
             column.addView(mic, ml);
             column.setVisibility(View.VISIBLE);
             setButtonWidth(rewriteBtn, 42);
+            setButtonWidth(translateBtn, 42);
             setButtonWidth(toolsBtn, 42);
             if (toneChip != null) toneChip.setPadding(dp(12), 0, dp(12), 0);
             paintToneChip(false);
@@ -1194,6 +1227,84 @@ public class MurmurIME extends InputMethodService {
         tonePicker.setVisibility(View.VISIBLE);
         statusRow.setVisibility(View.INVISIBLE);
         tonePicker.post(() -> tonePicker.scrollTo(0, 0));
+    }
+
+    // ---- speak to translate ------------------------------------------------------------
+
+    private TextView translateBtn;
+
+    /** The 文A button: plain when off, the language code on the accent colour when on. */
+    private void paintTranslate() {
+        if (translateBtn == null) return;
+        String to = Translate.target(this);
+        if (to.isEmpty()) {
+            translateBtn.setText("文A");
+            translateBtn.setTextColor(tc[Theme.TEXT]);
+            translateBtn.setBackground(keyBg(tc[Theme.SURFACE]));
+        } else {
+            translateBtn.setText("→" + Translate.code(to));
+            translateBtn.setTextColor(0xFFFFFFFF);
+            translateBtn.setBackground(pill(0xFF0EA5E9, true));
+        }
+    }
+
+    private void showLanguagePicker() {
+        if (tonePicker == null || statusRow == null || toneList == null) return;
+        if (recording || busy) return;
+        toneList.removeAllViews();
+        TextView title = new TextView(this);
+        title.setText("Translate to");
+        title.setTextColor(tc[Theme.DIM]);
+        title.setTextSize(13);
+        title.setGravity(Gravity.CENTER);
+        title.setPadding(dp(8), 0, dp(6), 0);
+        title.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
+        toneList.addView(title);
+        String current = Translate.target(this);
+        if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
+            Translate.setOn(this, false);
+            paintTranslate();
+            render("Translate off");
+        }));
+        for (String[] l : Translate.LANGUAGES) {
+            final String name = l[0];
+            toneList.addView(languageChip(l[1] + "  " + name, name.equals(current) ? 0xFF0EA5E9 : 0xFF334155, () -> {
+                Translate.set(this, name, true);
+                paintTranslate();
+                render("Translating to " + name + " · speak in any language");
+            }));
+        }
+        TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextColor(tc[Theme.DIM]);
+        close.setTextSize(16);
+        close.setGravity(Gravity.CENTER);
+        close.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(34)));
+        close.setContentDescription("Close");
+        close.setOnClickListener(v -> showTonePicker(false));
+        toneList.addView(close);
+        tonePicker.setVisibility(View.VISIBLE);
+        statusRow.setVisibility(View.INVISIBLE);
+        tonePicker.post(() -> tonePicker.scrollTo(0, 0));
+    }
+
+    private TextView languageChip(String text, int color, Runnable pick) {
+        TextView chip = new TextView(this);
+        chip.setText(text);
+        chip.setTextColor(tc[Theme.TEXT]);
+        chip.setTextSize(14);
+        chip.setTypeface(Typeface.DEFAULT_BOLD);
+        chip.setGravity(Gravity.CENTER);
+        chip.setPadding(dp(14), 0, dp(14), 0);
+        chip.setBackground(pill(color, false));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        chip.setLayoutParams(lp);
+        chip.setOnClickListener(v -> {
+            showTonePicker(false);
+            pick.run();
+        });
+        return chip;
     }
 
     /** Rewrites the selection, or the whole message when nothing is selected. */
@@ -1623,6 +1734,21 @@ public class MurmurIME extends InputMethodService {
             }
 
             @Override
+            public void onCursorMove(int dir) {
+                moveCursor(dir);
+            }
+
+            @Override
+            public void onDeleteSlide(int words) {
+                selectWordsBack(words);
+            }
+
+            @Override
+            public void onDeleteSlideEnd(boolean commit) {
+                endDeleteSlide(commit);
+            }
+
+            @Override
             public void onKeyPicker() {
                 InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                 if (imm != null) imm.showInputMethodPicker();
@@ -1714,7 +1840,7 @@ public class MurmurIME extends InputMethodService {
                 || var == InputType.TYPE_TEXT_VARIATION_URI;
         smartField = cls == InputType.TYPE_CLASS_TEXT && !secret && !address;
         suggestOn = smartField && (type & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
-        autocorrectOn = suggestOn && Prefs.flag(this, Prefs.AUTOCORRECT, true);
+        autocorrectOn = suggestOn && Prefs.flag(this, Prefs.AUTO_REPLACE, false);
         if (keys != null) {
             keys.setOptions(smartField && Prefs.flag(this, Prefs.SWIPE, true),
                     Prefs.flag(this, Prefs.KEY_VIBRATE, true), Prefs.flag(this, Prefs.KEY_SOUND, false));
@@ -1896,6 +2022,91 @@ public class MurmurIME extends InputMethodService {
         return before == null || before.toString().equals(word.toString());
     }
 
+    // ---- space bar cursor and backspace slide -------------------------------------------
+
+    /** Leaves the word being typed as it is, so the cursor can move off it. */
+    private void settleWord(InputConnection ic) {
+        if (word.length() > 0) {
+            ic.finishComposingText();
+            resetWord();
+            hideStrip();
+        }
+        clearRevert();
+        autoSpace = false;
+        // Dictation undo counts back from the cursor, so it can't follow a moved cursor.
+        lastInsertedLength = 0;
+        lastText = null;
+        undoRestore = null;
+    }
+
+    private void moveCursor(int dir) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        settleWord(ic);
+        sendDownUpKeyEvents(dir < 0 ? KeyEvent.KEYCODE_DPAD_LEFT : KeyEvent.KEYCODE_DPAD_RIGHT);
+    }
+
+    private int slideAnchor = -1;
+    private String slideBefore;
+    private int slideLength;
+
+    private void selectWordsBack(int words) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        if (slideBefore == null) {
+            settleWord(ic);
+            ExtractedText et = ic.getExtractedText(new ExtractedTextRequest(), 0);
+            if (et != null && et.text != null && et.selectionStart >= 0) {
+                int at = Math.min(et.selectionStart, et.text.length());
+                slideAnchor = et.startOffset + at;
+                slideBefore = et.text.subSequence(Math.max(0, at - 400), at).toString();
+            } else {
+                slideAnchor = -1;
+                String b = textBefore(ic);
+                slideBefore = b == null ? "" : b;
+            }
+        }
+        // Count whole words back from the cursor, taking the spaces after each word with it.
+        String b = slideBefore;
+        int start = b.length();
+        for (int w = 0; w < words && start > 0; w++) {
+            while (start > 0 && Character.isWhitespace(b.charAt(start - 1))) start--;
+            while (start > 0 && !Character.isWhitespace(b.charAt(start - 1))) start--;
+        }
+        slideLength = b.length() - start;
+        if (slideAnchor >= 0) ic.setSelection(slideAnchor - slideLength, slideAnchor);
+        String gone = b.substring(start).trim();
+        if (status != null && !recording && !busy) {
+            render(slideLength == 0 ? "Slide left to pick words to delete"
+                    : "Lift to delete “" + (gone.length() > 40 ? "…" + gone.substring(gone.length() - 40) : gone) + "”");
+        }
+    }
+
+    private void endDeleteSlide(boolean commit) {
+        InputConnection ic = getCurrentInputConnection();
+        int n = slideLength;
+        int anchor = slideAnchor;
+        slideBefore = null;
+        slideAnchor = -1;
+        slideLength = 0;
+        if (ic == null) return;
+        if (!commit || n == 0) {
+            if (anchor >= 0) ic.setSelection(anchor, anchor);
+            if (status != null && !recording && !busy) render(IDLE_HINT);
+            return;
+        }
+        if (anchor >= 0) {
+            CharSequence sel = ic.getSelectedText(0);
+            if (sel != null && sel.length() > 0) ic.commitText("", 1);
+            else ic.deleteSurroundingText(n, 0);
+        } else {
+            ic.deleteSurroundingText(n, 0);
+        }
+        lastInsertedLength = 0;
+        updateAutoShift();
+        if (status != null && !recording && !busy) render("Deleted");
+    }
+
     private void onGestureStart() {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
@@ -1993,6 +2204,27 @@ public class MurmurIME extends InputMethodService {
                 if (n >= 3) break;
                 if (!s.equals(r.autocorrect)) setCell(n++, s, s, CELL_WORD, false);
             }
+        } else if (!autocorrectOn) {
+            // Suggestions only: what you typed, then the best fix, then one more. Nothing changes
+            // unless you tap one.
+            java.util.LinkedHashSet<String> offer = new java.util.LinkedHashSet<>();
+            String picked = Learn.pickFor(this, typed);
+            if (picked != null) offer.add(matchCase(typed, picked));
+            if (r.autocorrect != null) offer.add(r.autocorrect);
+            offer.addAll(r.suggestions);
+            offer.remove(typed);
+            if (offer.isEmpty()) {
+                hideStrip();
+                return;
+            }
+            setCell(n++, r.valid ? typed : "“" + typed + "”", typed, r.valid ? CELL_WORD : CELL_KEEP, false);
+            boolean first = true;
+            for (String s : offer) {
+                if (n >= 3) break;
+                boolean strong = first && (picked != null || r.autocorrect != null);
+                setCell(n++, s, s, CELL_WORD, strong);
+                first = false;
+            }
         } else {
             if (!r.valid && !r.suggestions.isEmpty()) setCell(n++, "“" + typed + "”", typed, CELL_KEEP, false);
             for (String s : r.suggestions) {
@@ -2006,6 +2238,12 @@ public class MurmurIME extends InputMethodService {
         }
         while (n < 3) setCell(n++, "", null, CELL_WORD, false);
         showStrip();
+    }
+
+    /** "Teh" picked as "the" comes out "The". */
+    private static String matchCase(String typed, String w) {
+        if (typed.isEmpty() || w.isEmpty() || !Character.isUpperCase(typed.charAt(0))) return w;
+        return Character.toUpperCase(w.charAt(0)) + w.substring(1);
     }
 
     private void showSwipeStrip() {
@@ -2034,13 +2272,23 @@ public class MurmurIME extends InputMethodService {
         if (suggestions == null || status == null) return;
         suggestions.setVisibility(View.VISIBLE);
         status.setVisibility(View.GONE);
+        // On a narrow screen the suggestions need the room more than ✍️, 📋 and 文A do.
+        setExtrasShown(!Boolean.TRUE.equals(narrow));
         if (!compactChip) {
             compactChip = true;
             paintToneChip(false);
         }
     }
 
+    private void setExtrasShown(boolean shown) {
+        int v = shown ? View.VISIBLE : View.GONE;
+        for (View b : new View[]{rewriteBtn, toolsBtn, translateBtn}) {
+            if (b != null && b.getVisibility() != v) b.setVisibility(v);
+        }
+    }
+
     private void hideStrip() {
+        setExtrasShown(true);
         if (suggestions == null || status == null) return;
         if (suggestions.getVisibility() != View.VISIBLE && !compactChip) return;
         suggestions.setVisibility(View.GONE);
@@ -2070,6 +2318,10 @@ public class MurmurIME extends InputMethodService {
             return;
         }
         boolean keep = cellKind[i] == CELL_KEEP;
+        String typedNow = word.toString();
+        if (cellKind[i] == CELL_WORD && !wordSwiped && !typedNow.isEmpty() && !typedNow.equals(w)) {
+            Learn.rememberPick(this, typedNow, w);
+        }
         resetWord();
         keepAsTyped = null;
         clearRevert();

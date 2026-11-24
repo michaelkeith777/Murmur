@@ -178,6 +178,30 @@ final class Learn {
         return out;
     }
 
+    private static final int MAX_PICKS = 300;
+
+    /** Remembers that the user tapped {@code picked} for what they typed, so it's offered first next time. */
+    static void rememberPick(Context c, String typed, String picked) {
+        String t = typed.trim().toLowerCase(java.util.Locale.ROOT), p = picked.trim();
+        if (t.length() < 2 || p.isEmpty() || t.equals(p.toLowerCase(java.util.Locale.ROOT)) || p.length() > 40) return;
+        List<String> lines = new ArrayList<>();
+        for (String l : Prefs.get(c, Prefs.PICKS, "").split("\n")) {
+            if (!l.isEmpty() && !l.startsWith(t + "\t")) lines.add(l);
+        }
+        lines.add(t + "\t" + p);
+        while (lines.size() > MAX_PICKS) lines.remove(0);
+        Prefs.sp(c).edit().putString(Prefs.PICKS, String.join("\n", lines)).apply();
+    }
+
+    /** What the user picked last time they typed this, or null. */
+    static String pickFor(Context c, String typed) {
+        String t = typed.trim().toLowerCase(java.util.Locale.ROOT) + "\t";
+        for (String l : Prefs.get(c, Prefs.PICKS, "").split("\n")) {
+            if (l.startsWith(t)) return l.substring(t.length());
+        }
+        return null;
+    }
+
     static void keepTypedWord(Context c, String word) {
         String w = word.trim();
         if (w.isEmpty() || w.length() > 40) return;

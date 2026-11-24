@@ -66,6 +66,13 @@ final class AiClient {
     static String cleanup(String baseUrl, String apiKey, String model, String transcript,
                           String style, String vocab, String learned, String samples,
                           String appPackage, String toneRule) throws IOException {
+        return cleanup(baseUrl, apiKey, model, transcript, style, vocab, learned, samples, appPackage, toneRule, "");
+    }
+
+    /** Like the other cleanup, but writes the result in {@code translateTo} when it isn't empty. */
+    static String cleanup(String baseUrl, String apiKey, String model, String transcript,
+                          String style, String vocab, String learned, String samples,
+                          String appPackage, String toneRule, String translateTo) throws IOException {
         StringBuilder sys = new StringBuilder(SYSTEM_PROMPT);
         if (!toneRule.isEmpty()) {
             sys.append("\n\nWrite the result in this tone. ").append(toneRule)
@@ -93,6 +100,13 @@ final class AiClient {
         }
         if (!style.isEmpty()) {
             sys.append("\n\nThe user's style preferences: ").append(style);
+        }
+        if (!translateTo.isEmpty()) {
+            sys.append("\n\nTranslation is on. Whatever language the speaker used, write the finished text in ")
+               .append(translateTo)
+               .append(" as a fluent native speaker would write it. This overrides \"keep the speaker's language\". "
+                       + "Keep every fact, name, number and request. Output only the ")
+               .append(translateTo).append(" text.");
         }
         return chat(baseUrl, apiKey, model, sys.toString(),
                 "<transcript>\n" + transcript + "\n</transcript>", "transcript");

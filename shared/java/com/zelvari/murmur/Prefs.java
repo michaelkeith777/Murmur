@@ -33,6 +33,13 @@ final class Prefs {
     static final String SWIPE = "swipe";
     /** A light buzz on every key. */
     static final String KEY_VIBRATE = "key_vibrate";
+    /** Replace a typo by itself on space. Off by default: Murmur only suggests fixes above the keys. */
+    static final String AUTO_REPLACE = "auto_replace";
+    /** Suggestions the user tapped for a typed word, "typed\tpicked" per line, newest last. */
+    static final String PICKS = "picks";
+    /** Speak to translate: the target language, and whether it's on. */
+    static final String TRANSLATE_TO = "translate_to";
+    static final String TRANSLATE_ON = "translate_on";
     /** Key height on narrow screens like a foldable's cover screen, in percent (80 to 130). */
     static final String NARROW_KEY_SIZE = "narrow_key_size";
     static final int NARROW_KEY_SIZE_DEFAULT = 110;

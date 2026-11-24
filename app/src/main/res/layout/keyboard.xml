@@ -57,6 +57,16 @@
                 android:visibility="gone" />
 
             <TextView
+                android:id="@+id/translate"
+                android:layout_width="42dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="2dp"
+                android:gravity="center"
+                android:text="文A"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:contentDescription="Speak to translate. Tap to turn on or off, hold to pick the language" />
+            <TextView
                 android:id="@+id/rewrite"
                 android:layout_width="42dp"
                 android:layout_height="34dp"
