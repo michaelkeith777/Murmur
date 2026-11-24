@@ -27,6 +27,10 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.4.4
+
+- **Edge to edge on narrow screens:** no side padding, thinner gaps between keys, bigger letters, keys 10% taller by default, and the tone chip shrinks to its emoji. One-handed mode now only applies on wide screens.
+
 ## What's new in 1.4.3
 
 - **Fits narrow screens:** on a narrow screen like the Galaxy Z Fold cover screen, the mic and ↶ move into the top bar so the letters use the full width, with slimmer gaps and a shorter number row. It switches by itself when you fold or unfold. Wide screens, like the Fold's inner screen, keep the usual layout.

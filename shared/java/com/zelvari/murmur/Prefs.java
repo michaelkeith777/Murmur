@@ -35,6 +35,7 @@ final class Prefs {
     static final String KEY_VIBRATE = "key_vibrate";
     /** Key height on narrow screens like a foldable's cover screen, in percent (80 to 130). */
     static final String NARROW_KEY_SIZE = "narrow_key_size";
+    static final int NARROW_KEY_SIZE_DEFAULT = 110;
     /** Show the number row on narrow screens. */
     static final String NARROW_NUMBERS = "narrow_numbers";
     /** A click sound on every key. */

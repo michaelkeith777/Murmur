@@ -117,7 +117,7 @@
         <TextView style="@style/Label" android:text="Narrow screens" />
         <TextView
             style="@style/Hint"
-            android:text="On a narrow screen, like the cover screen of a Galaxy Z Fold, the mic and ↶ move up into the top bar so the letters use the full width. Wide screens keep the usual layout." />
+            android:text="On a narrow screen, like the cover screen of a Galaxy Z Fold, the mic and ↶ move up into the top bar so the keys run edge to edge with bigger letters. One-handed mode only applies on wide screens. Wide screens keep the usual layout." />
         <Switch
             android:id="@+id/narrow_numbers"
             style="@style/Label"

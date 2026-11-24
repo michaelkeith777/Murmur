@@ -218,7 +218,7 @@ public class MainActivity extends Activity {
         keyVibrate.setChecked(Prefs.flag(this, Prefs.KEY_VIBRATE, true));
         keySound.setChecked(Prefs.flag(this, Prefs.KEY_SOUND, false));
         narrowNumbers.setChecked(Prefs.flag(this, Prefs.NARROW_NUMBERS, true));
-        int size = Math.max(80, Math.min(130, Prefs.sp(this).getInt(Prefs.NARROW_KEY_SIZE, 100)));
+        int size = Math.max(80, Math.min(130, Prefs.sp(this).getInt(Prefs.NARROW_KEY_SIZE, Prefs.NARROW_KEY_SIZE_DEFAULT)));
         narrowSize.setProgress(size - 80);
         showNarrowSize(size);
         refreshLearned(true);

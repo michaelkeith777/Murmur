@@ -80,8 +80,10 @@ public class KeyboardView extends View {
 
     private final List<Key> keys = new ArrayList<>();
     private final float density;
-    private final float radius;
-    private float rowNum, rowLetter, gap;
+    private float radius;
+    private float rowNum, rowLetter, gap, gapX;
+    /** Bigger letters on narrow screens. */
+    private float labelScale = 1f;
     /** Number row height when shown; rowNum is 0 while the number row is hidden. */
     private float rowNumShown;
     private boolean showNumbers = true;
@@ -174,7 +176,7 @@ public class KeyboardView extends View {
         density = getResources().getDisplayMetrics().density;
         rowNumShown = rowNum = 42 * density;
         rowLetter = 52 * density;
-        gap = 2.5f * density;
+        gapX = gap = 2.5f * density;
         radius = 9 * density;
         textPaint.setTextAlign(Paint.Align.CENTER);
         trailPaint.setStyle(Paint.Style.STROKE);
@@ -239,6 +241,9 @@ public class KeyboardView extends View {
         float num = (narrow ? 38 : 42) * density * scale;
         float letter = 52 * density * scale;
         float g = (narrow ? 2f : 2.5f) * density;
+        float gx = (narrow ? 1.5f : 2.5f) * density;
+        float r = (narrow ? 7 : 9) * density;
+        float ls = narrow ? Math.max(1f, scale) * 1.12f : 1f;
         if (narrow && screenHeightPx > 0) {
             // Never let the keys take more than about 40% of a tall, narrow screen.
             float total = (numbers ? num : 0) + 4 * letter;
@@ -250,10 +255,13 @@ public class KeyboardView extends View {
             }
         }
         boolean numbersWas = showNumbers;
-        if (num == rowNumShown && letter == rowLetter && g == gap && numbers == numbersWas) return;
+        if (num == rowNumShown && letter == rowLetter && g == gap && gx == gapX && numbers == numbersWas) return;
         rowNumShown = num;
         rowLetter = letter;
         gap = g;
+        gapX = gx;
+        radius = r;
+        labelScale = ls;
         showNumbers = numbers;
         buildKeys();
         requestLayout();
@@ -338,7 +346,7 @@ public class KeyboardView extends View {
             for (Key k : keys) {
                 if (k.row != row) continue;
                 float right = x + unit * k.weight;
-                k.face.set(x + gap, top + gap, right - gap, bottom - gap);
+                k.face.set(x + gapX, top + gap, right - gapX, bottom - gap);
                 k.hit.set(i == 0 ? 0 : x, top, i == count - 1 ? w : right, bottom);
                 x = right;
                 i++;
@@ -383,7 +391,7 @@ public class KeyboardView extends View {
         String label = labelOf(k);
         boolean word = label.length() > 1 && k.kind != CHAR;
         float size = k.kind == SPACE ? 13 : word ? 14 : k.small ? 17 : 22;
-        textPaint.setTextSize(size * density);
+        textPaint.setTextSize(size * density * (k.kind == CHAR ? labelScale : 1f));
         textPaint.setTypeface(k.kind == SHIFT && shift == SHIFT_LOCK ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         int color = k.kind == SPACE ? colorDim : k.kind == ENTER ? 0xFFFFFFFF : colorText;
         if (k.kind == SHIFT && shift == SHIFT_LOCK) color = 0xFFFFFFFF;

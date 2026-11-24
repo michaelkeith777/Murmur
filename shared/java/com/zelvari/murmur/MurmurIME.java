@@ -816,7 +816,7 @@ public class MurmurIME extends InputMethodService {
     private void paintToneChip(boolean bounce) {
         if (toneChip == null) return;
         String id = Tones.current(this);
-        toneChip.setText(compactChip ? Tones.emoji(id) : Tones.emoji(id) + "  " + Tones.label(id) + "  ▾");
+        toneChip.setText(compactChip || Boolean.TRUE.equals(narrow) ? Tones.emoji(id) : Tones.emoji(id) + "  " + Tones.label(id) + "  ▾");
         toneChip.setBackground(pill(Tones.color(id), false));
         toneChip.setTextColor(tc[Theme.TEXT]);
         if (bounce) {
@@ -1022,7 +1022,7 @@ public class MurmurIME extends InputMethodService {
         boolean n = widthPx / density < NARROW_DP;
         int screenH = getResources().getDisplayMetrics().heightPixels;
         if (n) {
-            int pct = Math.max(80, Math.min(130, Prefs.sp(this).getInt(Prefs.NARROW_KEY_SIZE, 100)));
+            int pct = Math.max(80, Math.min(130, Prefs.sp(this).getInt(Prefs.NARROW_KEY_SIZE, Prefs.NARROW_KEY_SIZE_DEFAULT)));
             keys.setSizing(true, pct / 100f, Prefs.flag(this, Prefs.NARROW_NUMBERS, true), screenH);
         } else {
             keys.setSizing(false, 1f, true, 0);
@@ -1034,6 +1034,15 @@ public class MurmurIME extends InputMethodService {
             return;
         }
         narrow = n;
+        // Edge to edge on narrow screens: no side padding, and no one-handed gap eating width.
+        if (n) {
+            rootPadStart = root.getPaddingStart();
+            rootPadEnd = root.getPaddingEnd();
+            root.setPaddingRelative(0, root.getPaddingTop(), 0, root.getPaddingBottom());
+        } else if (rootPadStart >= 0) {
+            root.setPaddingRelative(rootPadStart, root.getPaddingTop(), rootPadEnd, root.getPaddingBottom());
+        }
+        applyHand();
         View col = root.findViewById(R.id.mic_col);
         View undo = root.findViewById(R.id.k_undo);
         if (!(col instanceof ViewGroup) || !(statusRow instanceof ViewGroup) || undo == null || mic == null) return;
@@ -1053,6 +1062,7 @@ public class MurmurIME extends InputMethodService {
             setButtonWidth(rewriteBtn, 36);
             setButtonWidth(toolsBtn, 36);
             if (toneChip != null) toneChip.setPadding(dp(8), 0, dp(8), 0);
+            paintToneChip(false);
         } else {
             LinearLayout.LayoutParams ul = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
@@ -1066,8 +1076,11 @@ public class MurmurIME extends InputMethodService {
             setButtonWidth(rewriteBtn, 42);
             setButtonWidth(toolsBtn, 42);
             if (toneChip != null) toneChip.setPadding(dp(12), 0, dp(12), 0);
+            paintToneChip(false);
         }
     }
+
+    private int rootPadStart = -1, rootPadEnd = -1;
 
     private static void detach(View v) {
         if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
@@ -1086,6 +1099,8 @@ public class MurmurIME extends InputMethodService {
             if ("hand_gap".equals(row.getChildAt(i).getTag())) row.removeViewAt(i);
         }
         if (Theme.HAND_OFF.equals(hand)) return;
+        // A narrow screen has no room to spare, so one-handed mode only applies on wide ones.
+        if (Boolean.TRUE.equals(narrow)) return;
         int width = Math.round(getResources().getDisplayMetrics().widthPixels * 0.17f);
         LinearLayout gap = new LinearLayout(this);
         gap.setTag("hand_gap");
