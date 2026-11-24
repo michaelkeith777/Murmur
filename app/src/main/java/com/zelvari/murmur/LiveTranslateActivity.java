@@ -59,7 +59,8 @@ public class LiveTranslateActivity extends Activity {
     }
 
     private final SharedPreferences.OnSharedPreferenceChangeListener watch = (sp, key) -> {
-        if (Prefs.IN_AT.equals(key) || Prefs.TEXTING.equals(key) || Prefs.DIAG_LAST.equals(key)) {
+        if (Prefs.IN_AT.equals(key) || Prefs.TEXTING.equals(key) || Prefs.DIAG_LAST.equals(key)
+                || Prefs.DIAG_SEEN.equals(key) || Prefs.DIAG_READING.equals(key)) {
             runOnUiThread(this::render);
         }
     };
@@ -124,8 +125,7 @@ public class LiveTranslateActivity extends Activity {
                     ready ? 0xFF22C55E : 0xFFF59E0B, 14);
             if (!ready) setup.setOnClickListener(v -> startSetup());
             body.addView(setup);
-            String last = Prefs.get(this, Prefs.DIAG_LAST, "");
-            if (!last.isEmpty()) body.addView(line("Last: " + last, dim, 12));
+            body.addView(status());
         }
 
         body.addView(row("You read in", Translate.mine(this), v -> pickLanguage("You read in", Translate.mine(this),
@@ -267,6 +267,37 @@ public class LiveTranslateActivity extends Activity {
         }
         wrap.addView(b);
         return wrap;
+    }
+
+    /** What's reading their replies right now, and the last one it caught. */
+    private View status() {
+        LinearLayout box = card();
+        TextView h = line("Reading replies", text, 15);
+        h.setTypeface(Typeface.DEFAULT_BOLD);
+        box.addView(h);
+        boolean readerOn = MurmurChatReader.enabled(this);
+        boolean readerRunning = MurmurChatReader.running();
+        box.addView(line((readerRunning ? "✓ " : "✗ ") + "Open chat: "
+                + (readerRunning ? "reading the chat you have open"
+                : readerOn ? "switched on, but Android hasn't started it. Turn Murmur off and on again in "
+                + "Accessibility" : "off, so replies in the chat you have open aren't read"),
+                readerRunning ? 0xFF22C55E : 0xFFF59E0B, 13));
+        boolean notes = MurmurNotifications.allowed(this);
+        box.addView(line((notes ? "✓ " : "✗ ") + "Closed chats: " + (notes ? "reading message notifications"
+                : "off, so replies to chats you don't have open aren't read"), notes ? 0xFF22C55E : 0xFFF59E0B, 13));
+        String reading = Prefs.get(this, Prefs.DIAG_READING, "");
+        if (!reading.isEmpty()) box.addView(line("Last chat opened: " + reading, dim, 12));
+        String seen = Prefs.get(this, Prefs.DIAG_SEEN, "");
+        box.addView(line(seen.isEmpty() ? "No reply caught yet" : "Last reply caught: " + seen, dim, 12));
+        String last = Prefs.get(this, Prefs.DIAG_LAST, "");
+        if (!last.isEmpty()) box.addView(line("Last: " + last, dim, 12));
+        if (!readerRunning || !notes) {
+            TextView fix = line("Finish setup ›", accent, 14);
+            fix.setPadding(0, dp(8), 0, 0);
+            fix.setOnClickListener(v -> startSetup());
+            box.addView(fix);
+        }
+        return box;
     }
 
     // ---- helpers ------------------------------------------------------------------------

@@ -8,7 +8,6 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -31,9 +30,12 @@ public class MurmurChatReader extends AccessibilityService {
     };
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private final Set<String> onScreen = new HashSet<>();
-    private String chatPkg = "";
-    private long quietUntil;
+    private final Set<String> onScreen = new java.util.LinkedHashSet<>();
+
+    /** True while Android has the reader running (it's on and connected). */
+    static boolean running() {
+        return instance != null;
+    }
 
     static boolean enabled(Context c) {
         String on = Settings.Secure.getString(c.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
@@ -42,32 +44,40 @@ public class MurmurChatReader extends AccessibilityService {
 
     private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
     private String pendingPkg;
-    private boolean pendingReset;
     private final Runnable scan = this::scan;
+    /** The chat whose bubbles are in {@link #onScreen}. */
+    private String chatKey = "";
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent e) {
         if (e == null || e.getPackageName() == null || !Translate.texting(this)) return;
-        String pkg = e.getPackageName().toString();
-        int type = e.getEventType();
-        long now = System.currentTimeMillis();
-        // A new screen or a scroll: what's showing then counts as already read.
-        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_VIEW_SCROLLED
-                || !pkg.equals(chatPkg)) {
-            pendingReset = true;
-            if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED) quietUntil = now + 1200;
-        }
-        pendingPkg = pkg;
+        pendingPkg = e.getPackageName().toString();
         // Wait for the burst of changes to settle, then look once.
         ui.removeCallbacks(scan);
         ui.postDelayed(scan, 350);
     }
 
+    /** One message bubble on screen, and whether it's one he sent. */
+    private static final class Bubble {
+        final String text;
+        final boolean mine;
+
+        Bubble(String text, boolean mine) {
+            this.text = text;
+            this.mine = mine;
+        }
+    }
+
+    /**
+     * Finds new replies in the open chat. A reply is new when it's at the bottom of the chat and
+     * wasn't on screen before, while a message above it was: that's how a chat grows. Opening a
+     * chat or scrolling up only shows messages already there, so those are left alone. (1.8 also
+     * started over whenever the chat scrolled, and WhatsApp scrolls each time a reply comes in,
+     * so replies were missed.)
+     */
     private void scan() {
         String pkg = pendingPkg;
         if (pkg == null) return;
-        boolean reset = pendingReset || System.currentTimeMillis() < quietUntil;
-        pendingReset = false;
         AccessibilityNodeInfo root;
         try {
             root = getRootInActiveWindow();
@@ -75,7 +85,7 @@ public class MurmurChatReader extends AccessibilityService {
             return;
         }
         if (root == null || root.getPackageName() == null || !pkg.equals(root.getPackageName().toString())) return;
-        List<String> bubbles = new ArrayList<>();
+        List<Bubble> bubbles = new ArrayList<>();
         try {
             for (String id : BUBBLE_IDS) {
                 if (!id.startsWith(pkg + ":")) continue;
@@ -83,7 +93,9 @@ public class MurmurChatReader extends AccessibilityService {
                 if (nodes == null) continue;
                 for (AccessibilityNodeInfo n : nodes) {
                     CharSequence t = n.getText();
-                    if (t != null && t.toString().trim().length() > 0) bubbles.add(t.toString().trim());
+                    if (t != null && t.toString().trim().length() > 0) {
+                        bubbles.add(new Bubble(t.toString().trim(), sentByHim(n, pkg)));
+                    }
                 }
             }
         } catch (RuntimeException ignored) {
@@ -91,32 +103,53 @@ public class MurmurChatReader extends AccessibilityService {
         }
         // Only a chat screen (one with a box to type in) counts, not the list of chats.
         boolean chatScreen = !bubbles.isEmpty() || hasTypingBox(root, 0);
-        if (bubbles.isEmpty() && chatScreen) collectFallback(root, bubbles, 0);
+        if (bubbles.isEmpty() && chatScreen) {
+            List<String> texts = new ArrayList<>();
+            collectFallback(root, texts, 0);
+            for (String t : texts) bubbles.add(new Bubble(t, false));
+        }
         // Tells the keyboard which chat is open, so its strip shows that chat's thread.
         final String from = chatScreen ? chatName(root, pkg) : "";
         ChatLog.setOpen(this, pkg, from);
-        if (!pkg.equals(chatPkg)) onScreen.clear();
-        chatPkg = pkg;
-        if (bubbles.isEmpty()) return;
-        if (reset || onScreen.isEmpty()) {
-            if (reset) onScreen.clear();
-            onScreen.addAll(bubbles);
+        if (!chatScreen) return;
+        String key = ChatLog.key(pkg, from);
+        if (!key.equals(chatKey)) {
+            // Another chat: what's showing now is already read.
+            chatKey = key;
+            onScreen.clear();
+            for (Bubble b : bubbles) onScreen.add(b.text);
+            MurmurNotifications.diag(this, Prefs.DIAG_READING, label(pkg) + " · " + (from.isEmpty() ? "a chat" : from)
+                    + " (" + bubbles.size() + " messages on screen)");
             return;
         }
-        // Only the newest bubble at the bottom counts as a new reply.
-        String newest = bubbles.get(bubbles.size() - 1);
-        boolean fresh = !onScreen.contains(newest);
-        onScreen.addAll(bubbles);
-        if (onScreen.size() > 400) {
-            onScreen.clear();
-            onScreen.addAll(bubbles);
+        if (bubbles.isEmpty()) return;
+
+        // The new messages at the bottom, if a message above them was already on screen.
+        int first = bubbles.size();
+        while (first > 0 && !onScreen.contains(bubbles.get(first - 1).text)) first--;
+        boolean anchored = first > 0;
+        List<String> fresh = new ArrayList<>();
+        if (anchored) for (int i = first; i < bubbles.size(); i++) {
+            Bubble b = bubbles.get(i);
+            if (!b.mine && !Translate.wasSent(this, b.text) && b.text.length() <= 1500) fresh.add(b.text);
         }
-        if (!fresh || Translate.wasSent(this, newest) || newest.length() > 1500) return;
-        if (!MurmurNotifications.claim(newest)) return;
+        for (Bubble b : bubbles) onScreen.add(b.text);
+        if (onScreen.size() > 600) {
+            onScreen.clear();
+            for (Bubble b : bubbles) onScreen.add(b.text);
+        }
+        if (fresh.isEmpty()) return;
+        // A burst of several replies at once: the last three are plenty.
+        while (fresh.size() > 3) fresh.remove(0);
 
         final String apiKey = Prefs.get(this, Prefs.API_KEY, "");
         if (apiKey.isEmpty()) {
             MurmurNotifications.note(this, "no API key, so nothing was translated");
+            return;
+        }
+        ChatLog.Chat ch = ChatLog.get(this, key);
+        if (ch != null && ch.off) {
+            MurmurNotifications.note(this, "Live Translate is off for " + ch.title());
             return;
         }
         String b = Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL);
@@ -125,10 +158,36 @@ public class MurmurChatReader extends AccessibilityService {
         final String mine = Translate.mine(this);
         final String app = label(pkg);
         final Context ctx = getApplicationContext();
-        ChatLog.Chat ch = ChatLog.get(this, ChatLog.key(pkg, from));
-        if (ch != null && ch.off) return;
-        MurmurNotifications.note(this, app + " (open chat): translating a new message…");
-        worker.execute(() -> MurmurNotifications.handle(ctx, base, apiKey, model, mine, pkg, from, from, newest, app, null, true));
+        for (String text : fresh) {
+            if (!MurmurNotifications.claim(text)) continue;
+            MurmurNotifications.diag(this, Prefs.DIAG_SEEN, app + " · " + (from.isEmpty() ? "someone" : from) + ": "
+                    + (text.length() > 60 ? text.substring(0, 60) + "…" : text));
+            MurmurNotifications.note(this, app + " (open chat): translating a new message…");
+            worker.execute(() -> MurmurNotifications.handle(ctx, base, apiKey, model, mine, pkg, from, from, text, app, null, true));
+        }
+    }
+
+    /**
+     * WhatsApp marks his own messages with delivery ticks; theirs have none. Looks for the ticks
+     * in the bubble's row, without leaving the row.
+     */
+    private static boolean sentByHim(AccessibilityNodeInfo n, String pkg) {
+        if (!pkg.startsWith("com.whatsapp")) return false;
+        try {
+            AccessibilityNodeInfo row = n;
+            for (int i = 0; i < 5; i++) {
+                AccessibilityNodeInfo p = row.getParent();
+                if (p == null) break;
+                CharSequence cls = p.getClassName();
+                if (cls != null && (cls.toString().contains("RecyclerView") || cls.toString().contains("ListView"))) break;
+                row = p;
+            }
+            if (row == n) return false;
+            List<AccessibilityNodeInfo> ticks = row.findAccessibilityNodeInfosByViewId(pkg + ":id/status");
+            return ticks != null && !ticks.isEmpty();
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private static final java.util.regex.Pattern NOT_A_MESSAGE = java.util.regex.Pattern.compile(

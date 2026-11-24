@@ -55,6 +55,9 @@ final class Prefs {
     static final String SENT_RECENT = "sent_recent";
     /** When the open-chat reader last saw a different chat open (so the keyboard strip redraws). */
     static final String CHAT_OPEN_AT = "chat_open_at";
+    /** Live Translate's status: the chat the open-chat reader last saw, and the last reply it caught. */
+    static final String DIAG_READING = "diag_reading";
+    static final String DIAG_SEEN = "diag_seen";
     /** Texting mode diagnostics, shown in settings: when the reader connected and what it last did. */
     static final String DIAG_CONNECTED = "diag_connected";
     static final String DIAG_LAST = "diag_last";

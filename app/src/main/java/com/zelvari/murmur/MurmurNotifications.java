@@ -75,6 +75,12 @@ public class MurmurNotifications extends NotificationListenerService {
         Prefs.sp(c).edit().putString(Prefs.DIAG_LAST, time + " · " + what).apply();
     }
 
+    /** A diagnostic line with the time, for the Live Translate screen. */
+    static void diag(Context c, String key, String what) {
+        String time = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date());
+        Prefs.sp(c).edit().putString(key, time + " · " + what).apply();
+    }
+
     @Override
     public void onListenerConnected() {
         Prefs.sp(this).edit().putLong(Prefs.DIAG_CONNECTED, System.currentTimeMillis()).apply();

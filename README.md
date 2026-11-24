@@ -27,6 +27,16 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.8.1
+
+- **Their replies in the open chat now come back in your language.** 1.8 started over each time
+  the chat scrolled, and WhatsApp scrolls every time a reply comes in, so replies were missed.
+  Now a reply counts as new when it lands at the bottom of the chat, under messages already
+  seen. Your own WhatsApp messages (the ones with ticks) are never translated back.
+- **Live Translate shows what's reading replies:** whether the open-chat reader is running,
+  whether notifications are read for closed chats, the last chat opened and the last reply
+  caught.
+
 ## What's new in 1.8
 
 - **Live Translate, linked to every chat.** Texting mode now keeps a thread for each chat
