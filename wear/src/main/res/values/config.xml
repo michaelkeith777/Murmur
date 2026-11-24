@@ -12,4 +12,5 @@
     <item name="tone_picker" type="id" />
     <item name="tone_list" type="id" />
     <item name="status_row" type="id" />
+    <item name="suggestions" type="id" />
 </resources>

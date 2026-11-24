@@ -162,7 +162,41 @@ final class Learn {
 
     /** Forgets everything learned automatically. The user's own word list stays. */
     static void clearLearned(Context c) {
-        Prefs.sp(c).edit().remove(Prefs.LEARNED).remove(Prefs.SAMPLES).apply();
+        Prefs.sp(c).edit().remove(Prefs.LEARNED).remove(Prefs.SAMPLES).remove(Prefs.TYPED_WORDS).apply();
+    }
+
+    // ---- typing ------------------------------------------------------------------
+
+    private static final int MAX_TYPED = 200;
+
+    /** Words autocorrect should leave alone because the user undid its fix. */
+    static List<String> typedWords(Context c) {
+        List<String> out = new ArrayList<>();
+        for (String w : Prefs.get(c, Prefs.TYPED_WORDS, "").split("\n")) {
+            if (!w.trim().isEmpty()) out.add(w.trim());
+        }
+        return out;
+    }
+
+    static void keepTypedWord(Context c, String word) {
+        String w = word.trim();
+        if (w.isEmpty() || w.length() > 40) return;
+        List<String> all = typedWords(c);
+        all.remove(w);
+        all.add(w);
+        while (all.size() > MAX_TYPED) all.remove(0);
+        Prefs.sp(c).edit().putString(Prefs.TYPED_WORDS, String.join("\n", all)).apply();
+    }
+
+    /** Everything the keyboard should know as a real word: the word list, learned spellings, kept words. */
+    static List<String> userWords(Context c) {
+        List<String> out = new ArrayList<>();
+        for (String w : Prefs.get(c, Prefs.VOCAB, "").split(",")) {
+            if (!w.trim().isEmpty()) out.add(w.trim());
+        }
+        out.addAll(learned(c).values());
+        out.addAll(typedWords(c));
+        return out;
     }
 
     /** Applies learned fixes word-for-word; used when the AI cleanup pass didn't run. */

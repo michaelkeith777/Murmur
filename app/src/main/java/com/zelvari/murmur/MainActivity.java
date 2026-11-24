@@ -24,6 +24,7 @@ public class MainActivity extends Activity {
     private TextView stepMic, stepEnable, stepPick, stepOneTap;
     private EditText apiKey, style, vocab, language, baseUrl, sttModel, llmModel;
     private Switch cleanup, autoStart, autoReturn, commands, learn, learnStyle;
+    private Switch autocorrect, swipe, keyVibrate, keySound;
     private Spinner tone;
     private EditText learned;
     private TextView samplesInfo;
@@ -56,6 +57,10 @@ public class MainActivity extends Activity {
         commands = findViewById(R.id.commands);
         learn = findViewById(R.id.learn);
         learnStyle = findViewById(R.id.learn_style);
+        autocorrect = findViewById(R.id.autocorrect);
+        swipe = findViewById(R.id.swipe);
+        keyVibrate = findViewById(R.id.key_vibrate);
+        keySound = findViewById(R.id.key_sound);
         learned = findViewById(R.id.learned);
         samplesInfo = findViewById(R.id.samples_info);
         tone = findViewById(R.id.tone);
@@ -162,6 +167,10 @@ public class MainActivity extends Activity {
         commands.setChecked(Prefs.flag(this, Prefs.COMMANDS, true));
         learn.setChecked(Prefs.flag(this, Prefs.LEARN, true));
         learnStyle.setChecked(Prefs.flag(this, Prefs.LEARN_STYLE, true));
+        autocorrect.setChecked(Prefs.flag(this, Prefs.AUTOCORRECT, true));
+        swipe.setChecked(Prefs.flag(this, Prefs.SWIPE, true));
+        keyVibrate.setChecked(Prefs.flag(this, Prefs.KEY_VIBRATE, true));
+        keySound.setChecked(Prefs.flag(this, Prefs.KEY_SOUND, false));
         refreshLearned(true);
     }
 
@@ -196,6 +205,10 @@ public class MainActivity extends Activity {
                 .putBoolean(Prefs.COMMANDS, commands.isChecked())
                 .putBoolean(Prefs.LEARN, learn.isChecked())
                 .putBoolean(Prefs.LEARN_STYLE, learnStyle.isChecked())
+                .putBoolean(Prefs.AUTOCORRECT, autocorrect.isChecked())
+                .putBoolean(Prefs.SWIPE, swipe.isChecked())
+                .putBoolean(Prefs.KEY_VIBRATE, keyVibrate.isChecked())
+                .putBoolean(Prefs.KEY_SOUND, keySound.isChecked())
                 .apply();
         // Only overwrite the lists if they were edited here, so words the keyboard just
         // learned are not lost.

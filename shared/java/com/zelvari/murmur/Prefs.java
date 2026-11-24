@@ -27,6 +27,16 @@ final class Prefs {
     static final String LEARN_STYLE = "learn_style";
     /** Recent finished dictations, one per line, newest last: the user's own voice. */
     static final String SAMPLES = "samples";
+    /** Fix typos on space with the word list (typing keys). */
+    static final String AUTOCORRECT = "autocorrect";
+    /** Slide across the letters to type a word. */
+    static final String SWIPE = "swipe";
+    /** A light buzz on every key. */
+    static final String KEY_VIBRATE = "key_vibrate";
+    /** A click sound on every key. */
+    static final String KEY_SOUND = "key_sound";
+    /** Words the user kept by undoing an autocorrect, one per line, newest last. */
+    static final String TYPED_WORDS = "typed_words";
     /** Settings version, for one-time upgrades of stored defaults. */
     static final String SCHEMA = "schema";
     /** Time (ms) the one-tap trigger last asked the keyboard to listen as soon as it opens. */

@@ -90,6 +90,30 @@
             style="@style/Hint"
             android:text="Right after dictating, tap the mic and say &quot;make that shorter&quot;, &quot;translate that to Spanish&quot;, &quot;make it more professional&quot;, &quot;add some emojis&quot; or &quot;scratch that&quot;. Start with &quot;Murmur,&quot; to ask for anything else. Select text first to edit that instead. ↶ brings back the original." />
 
+        <TextView style="@style/Section" android:text="TYPING" />
+        <Switch
+            android:id="@+id/autocorrect"
+            style="@style/Label"
+            android:text="Autocorrect and word suggestions" />
+        <TextView
+            style="@style/Hint"
+            android:text="Fixes typos when you hit space. Backspace right after a fix puts back what you typed, and Murmur stops changing that word. Your vocabulary words are never corrected." />
+        <Switch
+            android:id="@+id/swipe"
+            style="@style/Label"
+            android:text="Swipe typing" />
+        <TextView
+            style="@style/Hint"
+            android:text="Slide your finger across the letters to spell a word. Other guesses show above the keys; tap one to swap it in." />
+        <Switch
+            android:id="@+id/key_vibrate"
+            style="@style/Label"
+            android:text="Vibrate on each key" />
+        <Switch
+            android:id="@+id/key_sound"
+            style="@style/Label"
+            android:text="Click sound on each key" />
+
         <TextView style="@style/Section" android:text="YOUR VOCABULARY" />
         <TextView style="@style/Label" android:text="Names and words to get right" />
         <TextView
@@ -166,5 +190,9 @@
             android:gravity="center"
             android:text="Save"
             android:textStyle="bold" />
+        <TextView
+            style="@style/Hint"
+            android:layout_marginBottom="24dp"
+            android:text="Word list built from hermitdave/FrequencyWords (OpenSubtitles 2018), CC BY-SA 4.0." />
     </LinearLayout>
 </ScrollView>

@@ -36,6 +36,9 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -63,7 +66,8 @@ public class MurmurIME extends InputMethodService {
     private View statusRow;
     private HorizontalScrollView tonePicker;
     private LinearLayout toneList;
-    private LinearLayout keys;
+    private KeyboardView keys;
+    private LinearLayout suggestions;
 
     private MediaRecorder recorder;
     private File audioFile;
@@ -139,6 +143,7 @@ public class MurmurIME extends InputMethodService {
         tonePicker = root.findViewById(R.id.tone_picker);
         toneList = root.findViewById(R.id.tone_list);
         keys = root.findViewById(R.id.keys);
+        suggestions = root.findViewById(R.id.suggestions);
         toneColor = Tones.color(Tones.current(this));
 
         fillScreen = getResources().getBoolean(R.bool.fill_screen);
@@ -175,7 +180,7 @@ public class MurmurIME extends InputMethodService {
             });
             paintToneChip(false);
         }
-        if (keys != null) buildKeys();
+        if (keys != null) setupKeys();
 
         render(IDLE_HINT);
         return root;
@@ -187,11 +192,25 @@ public class MurmurIME extends InputMethodService {
         selStart = info.initialSelStart;
         selEnd = info.initialSelEnd;
         String learned = learnFromFixes(info);
+        if (word.length() > 0) {
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) ic.finishComposingText();
+        }
+        resetWord();
+        clearRevert();
+        autoSpace = false;
+        hideStrip();
         if (!restarting) symbols = false;
         if (shift != SHIFT_LOCK) shift = SHIFT_OFF;
         showTonePicker(false);
         refreshTone();
-        if (keys != null) buildKeys();
+        readTypingOptions(info);
+        if (keys != null) {
+            keys.setSymbols(symbols);
+            keys.setShift(shift);
+            keys.setAccent(toneColor);
+            refreshUserWords();
+        }
         updateAutoShift();
         if (!restarting && !recording && !busy) {
             render(learned != null ? learned : IDLE_HINT);
@@ -209,13 +228,38 @@ public class MurmurIME extends InputMethodService {
                 candidatesStart, candidatesEnd);
         selStart = newSelStart;
         selEnd = newSelEnd;
-        updateAutoShift();
+        if (word.length() > 0 && cursorLeftWord(newSelStart, newSelEnd, candidatesStart, candidatesEnd)) {
+            // The user moved the cursor: leave the word as it is.
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) ic.finishComposingText();
+            resetWord();
+            hideStrip();
+        }
+        if (word.length() == 0) clearRevertIfMoved(newSelStart, newSelEnd);
+        // Don't undo a Shift tap that the editor hasn't caught up with yet.
+        if (SystemClock.uptimeMillis() - lastShiftTap > 500) updateAutoShift();
         if (recording || busy || status == null) return;
         if (newSelStart != newSelEnd) {
             offerSelectedWord();
         } else if (offeredWord != null) {
             render(IDLE_HINT);
         }
+    }
+
+    /** True when the cursor is no longer at the end of the word being typed. */
+    private boolean cursorLeftWord(int selStart, int selEnd, int candStart, int candEnd) {
+        if (candStart >= 0) return selStart != selEnd || selEnd != candEnd;
+        // No word showing: either the editor is still catching up with us, or it dropped the
+        // word because the user tapped elsewhere. The text before the cursor tells them apart.
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return true;
+        CharSequence before = ic.getTextBeforeCursor(word.length(), 0);
+        return before == null || !before.toString().equals(word.toString());
+    }
+
+    private void clearRevertIfMoved(int selStart, int selEnd) {
+        if (revertFrom == null) return;
+        if (selStart != selEnd) clearRevert();
     }
 
     /** True once if the one-tap trigger fired in the last few seconds. */
@@ -234,6 +278,12 @@ public class MurmurIME extends InputMethodService {
 
     @Override
     public void onFinishInputView(boolean finishingInput) {
+        if (word.length() > 0) {
+            InputConnection ic = getCurrentInputConnection();
+            if (ic != null) ic.finishComposingText();
+        }
+        resetWord();
+        hideStrip();
         learnFromFixes(getCurrentInputEditorInfo());
         super.onFinishInputView(finishingInput);
         ui.removeCallbacks(repeatDelete);
@@ -246,6 +296,7 @@ public class MurmurIME extends InputMethodService {
         if (recording) discardRecording();
         ui.removeCallbacksAndMessages(null);
         worker.shutdownNow();
+        typing.shutdownNow();
         super.onDestroy();
     }
 
@@ -254,6 +305,7 @@ public class MurmurIME extends InputMethodService {
     private void onMicTapped() {
         if (busy) return;
         showTonePicker(false);
+        finishWord(false);
         if (recording) {
             finishRecording();
         } else {
@@ -488,6 +540,8 @@ public class MurmurIME extends InputMethodService {
     private boolean insert(String text) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null || text == null || text.isEmpty()) return false;
+        finishWord(false);
+        clearRevert();
         CharSequence before = ic.getTextBeforeCursor(1, 0);
         boolean needsSpace = before != null && before.length() > 0
                 && !Character.isWhitespace(before.charAt(0))
@@ -640,7 +694,7 @@ public class MurmurIME extends InputMethodService {
         toneColor = Tones.color(id);
         showTonePicker(false);
         paintToneChip(true);
-        if (keys != null) buildKeys();
+        if (keys != null) keys.setAccent(toneColor);
         haptic(toneChip);
         if (!recording && !busy) {
             render(Tones.AUTO.equals(id) ? "✨ Auto: fits the app you're typing in"
@@ -652,7 +706,7 @@ public class MurmurIME extends InputMethodService {
     private void paintToneChip(boolean bounce) {
         if (toneChip == null) return;
         String id = Tones.current(this);
-        toneChip.setText(Tones.emoji(id) + "  " + Tones.label(id) + "  ▾");
+        toneChip.setText(compactChip ? Tones.emoji(id) : Tones.emoji(id) + "  " + Tones.label(id) + "  ▾");
         toneChip.setBackground(pill(Tones.color(id), false));
         if (bounce) {
             toneChip.setScaleX(0.8f);
@@ -734,151 +788,521 @@ public class MurmurIME extends InputMethodService {
 
     // ---- typing keyboard -------------------------------------------------------------
 
-    private static final String NUMBERS = "1234567890";
-    private static final String[] LETTERS = {"qwertyuiop", "asdfghjkl", "zxcvbnm"};
-    private static final String[] SYMBOLS = {"@#$%&-+()/", "*\"':;!?=_", "<>[]{}|\\"};
+    /** The word list is shared by every keyboard instance and loaded once, off the main thread. */
+    private static volatile Dict dict;
+    private static boolean dictLoading;
+    private static final Object DICT_LOCK = new Object();
 
-    private void buildKeys() {
-        keys.removeAllViews();
-        LinearLayout numbers = row(42);
-        for (char ch : NUMBERS.toCharArray()) numbers.addView(charKey(String.valueOf(ch), true));
-        keys.addView(numbers);
+    private final ExecutorService typing = Executors.newSingleThreadExecutor();
+    private final SwipeDecoder swipe = new SwipeDecoder();
+    /** The word being typed, shown underlined (composing) until a space or punctuation ends it. */
+    private final StringBuilder word = new StringBuilder();
+    private boolean wordSwiped;
+    /** Don't autocorrect this word: it touches a number or other letters, or the user kept it. */
+    private boolean wordNoCorrect;
+    private String keepAsTyped;
+    private final List<String> swipeAlts = new ArrayList<>();
+    private boolean smartField, suggestOn, autocorrectOn;
+    /** The last autocorrect, so backspace right after it brings back what was typed. */
+    private String revertFrom, revertTo, revertSep;
+    /** A space added after a picked suggestion; punctuation typed next moves in front of it. */
+    private boolean autoSpace;
+    private int lastCharShift;
+    private int suggestSeq;
+    private String cachedFor;
+    private Corrector.Result cached;
+    private boolean compactChip;
 
-        String[] layout = symbols ? SYMBOLS : LETTERS;
+    private static final int CELL_WORD = 0, CELL_KEEP = 1, CELL_SWIPE = 2;
+    private final TextView[] cells = new TextView[3];
+    private final String[] cellWord = new String[3];
+    private final int[] cellKind = new int[3];
 
-        LinearLayout r1 = row(50);
-        for (char ch : layout[0].toCharArray()) r1.addView(charKey(String.valueOf(ch), false));
-        keys.addView(r1);
+    private void setupKeys() {
+        keys.setColors(getColor(R.color.key), getColor(R.color.surface), getColor(R.color.key_pressed),
+                getColor(R.color.text), getColor(R.color.dim));
+        keys.setAccent(toneColor);
+        keys.setListener(new KeyboardView.Listener() {
+            @Override
+            public void onKeyChar(String s) {
+                onTypedChar(s);
+            }
 
-        LinearLayout r2 = row(50);
-        boolean inset = layout[1].length() < 10;
-        if (inset) r2.addView(spacer(0.5f));
-        for (char ch : layout[1].toCharArray()) r2.addView(charKey(String.valueOf(ch), false));
-        if (inset) r2.addView(spacer(0.5f));
-        keys.addView(r2);
+            @Override
+            public void onKeySpace() {
+                onSpace();
+            }
 
-        LinearLayout r3 = row(50);
-        if (symbols) {
-            r3.addView(modKey("…", 1.5f, v -> type("…"), "Ellipsis"));
+            @Override
+            public void onKeyEnter() {
+                pressEnter();
+            }
+
+            @Override
+            public void onKeyDelete() {
+                onDeleteKey();
+            }
+
+            @Override
+            public void onKeyShift() {
+                onShift();
+            }
+
+            @Override
+            public void onKeyMode() {
+                keys.setSymbols(!keys.symbols());
+                symbols = keys.symbols();
+                if (!symbols) updateAutoShift();
+            }
+
+            @Override
+            public void onKeySwitch() {
+                finishWord(false);
+                switchToPreviousKeyboard();
+            }
+
+            @Override
+            public void onKeyPicker() {
+                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) imm.showInputMethodPicker();
+            }
+
+            @Override
+            public void onSwipeStart() {
+                onGestureStart();
+            }
+
+            @Override
+            public void onSwipe(float[] xs, float[] ys, int n) {
+                onGesture(xs, ys, n);
+            }
+        });
+        if (suggestions != null) {
+            suggestions.removeAllViews();
+            for (int i = 0; i < 3; i++) {
+                final int at = i;
+                TextView cell = new TextView(this);
+                cell.setGravity(Gravity.CENTER);
+                cell.setTextColor(getColor(R.color.text));
+                cell.setTextSize(16);
+                cell.setSingleLine(true);
+                cell.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                cell.setPadding(dp(4), 0, dp(4), 0);
+                cell.setSoundEffectsEnabled(false);
+                cell.setBackground(keyBg(getColor(R.color.bg)));
+                cell.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+                cell.setOnClickListener(v -> pickSuggestion(at));
+                cells[i] = cell;
+                suggestions.addView(cell);
+                if (i < 2) {
+                    View line = new View(this);
+                    line.setBackgroundColor(getColor(R.color.key));
+                    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(1), dp(22));
+                    lp.gravity = Gravity.CENTER_VERTICAL;
+                    line.setLayoutParams(lp);
+                    suggestions.addView(line);
+                }
+            }
+        }
+        loadDict();
+    }
+
+    private void loadDict() {
+        final Context app = getApplicationContext();
+        synchronized (DICT_LOCK) {
+            if (dict != null) {
+                refreshUserWords();
+                return;
+            }
+            if (dictLoading) return;
+            dictLoading = true;
+        }
+        typing.execute(() -> {
+            Dict d;
+            try (InputStream in = app.getAssets().open("words.txt")) {
+                d = Dict.load(in);
+            } catch (IOException | RuntimeException e) {
+                d = new Dict(); // the watch has no word list; the user's own words still work
+            }
+            d.setUserWords(Learn.userWords(app));
+            synchronized (DICT_LOCK) {
+                dict = d;
+                dictLoading = false;
+            }
+        });
+    }
+
+    /** Picks up new words from the app, learned fixes and kept words. */
+    private void refreshUserWords() {
+        final Dict d = dict;
+        if (d == null) return;
+        final Context app = getApplicationContext();
+        typing.execute(() -> d.setUserWords(Learn.userWords(app)));
+    }
+
+    /** Which typing help fits this field: none in passwords, emails and web addresses. */
+    private void readTypingOptions(EditorInfo info) {
+        int type = info != null ? info.inputType : 0;
+        int cls = type & InputType.TYPE_MASK_CLASS;
+        int var = type & InputType.TYPE_MASK_VARIATION;
+        boolean secret = var == InputType.TYPE_TEXT_VARIATION_PASSWORD
+                || var == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                || var == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+        boolean address = var == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                || var == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
+                || var == InputType.TYPE_TEXT_VARIATION_URI;
+        smartField = cls == InputType.TYPE_CLASS_TEXT && !secret && !address;
+        suggestOn = smartField && (type & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
+        autocorrectOn = suggestOn && Prefs.flag(this, Prefs.AUTOCORRECT, true);
+        if (keys != null) {
+            keys.setOptions(smartField && Prefs.flag(this, Prefs.SWIPE, true),
+                    Prefs.flag(this, Prefs.KEY_VIBRATE, true), Prefs.flag(this, Prefs.KEY_SOUND, false));
+        }
+    }
+
+    private void resetWord() {
+        word.setLength(0);
+        wordSwiped = false;
+        wordNoCorrect = false;
+        swipeAlts.clear();
+        cachedFor = null;
+    }
+
+    private void clearRevert() {
+        revertFrom = null;
+        revertTo = null;
+        revertSep = null;
+    }
+
+    private void onTypedChar(String s) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        lastCharShift = shift;
+        char c = s.charAt(0);
+        boolean letter = Character.isLetter(c);
+        boolean wordChar = letter || (c == '\'' && word.length() > 0 && !wordSwiped);
+        boolean punct = ".,!?;:)".indexOf(c) >= 0;
+        clearRevert();
+        if (smartField && wordChar) {
+            if (wordSwiped) {
+                // A tap after a swiped word starts the next word.
+                finishWord(false);
+                ic.commitText(" ", 1);
+            }
+            if (word.length() == 0) startWord(ic);
+            word.append(s);
+            ic.setComposingText(word, 1);
+            autoSpace = false;
         } else {
-            TextView s = modKey(shift == SHIFT_LOCK ? "⇪" : "⇧", 1.5f, v -> onShift(), "Shift");
-            if (shift != SHIFT_OFF) {
-                s.setTextColor(toneColor);
-                s.setTypeface(Typeface.DEFAULT_BOLD);
+            if (word.length() > 0) finishWord(punct || c == '"');
+            if (punct && autoSpace) {
+                // "word ." becomes "word. "
+                CharSequence before = ic.getTextBeforeCursor(1, 0);
+                if (before != null && before.length() == 1 && before.charAt(0) == ' ') {
+                    ic.beginBatchEdit();
+                    ic.deleteSurroundingText(1, 0);
+                    ic.commitText(s + " ", 1);
+                    ic.endBatchEdit();
+                    autoSpace = false;
+                    lastInsertedLength = 0;
+                    afterKey(letter);
+                    return;
+                }
             }
-            r3.addView(s);
+            ic.commitText(s, 1);
+            if (revertFrom != null && revertSep == null) revertSep = s;
+            autoSpace = false;
         }
-        for (char ch : layout[2].toCharArray()) r3.addView(charKey(String.valueOf(ch), false));
-        TextView del = modKey("⌫", 1.5f, null, "Backspace");
-        setupDelete(del);
-        r3.addView(del);
-        keys.addView(r3);
-
-        LinearLayout r4 = row(50);
-        r4.addView(modKey(symbols ? "ABC" : "?123", 1.4f, v -> {
-            symbols = !symbols;
-            buildKeys();
-        }, "Switch letters and symbols"));
-        TextView sw = modKey("⌨", 1f, null, "Switch keyboard");
-        setupSwitcher(sw);
-        r4.addView(sw);
-        r4.addView(charKey(",", false));
-        TextView space = modKey("space", 4f, v -> onSpace(), "Space");
-        space.setTextColor(getColor(R.color.dim));
-        space.setBackground(keyBg(getColor(R.color.key)));
-        space.setOnLongClickListener(v -> {
-            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) imm.showInputMethodPicker();
-            return true;
-        });
-        r4.addView(space);
-        r4.addView(charKey(".", false));
-        TextView enter = modKey("⏎", 1.5f, v -> pressEnter(), "Enter");
-        enter.setBackground(keyBg(toneColor));
-        enter.setTextColor(0xFFFFFFFF);
-        r4.addView(enter);
-        keys.addView(r4);
+        lastInsertedLength = 0;
+        afterKey(letter);
     }
 
-    private LinearLayout row(int heightDp) {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        r.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp)));
-        return r;
+    private void afterKey(boolean letter) {
+        if (shift == SHIFT_ONCE && letter) {
+            shift = SHIFT_OFF;
+            if (keys != null) keys.setShift(shift);
+        }
+        scheduleSuggestions();
     }
 
-    private View spacer(float weight) {
-        View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight));
-        return v;
+    /** A new word begins; it is left alone if it's glued to a number or other letters. */
+    private void startWord(InputConnection ic) {
+        wordNoCorrect = false;
+        keepAsTyped = null;
+        CharSequence before = ic.getTextBeforeCursor(1, 0);
+        CharSequence after = ic.getTextAfterCursor(1, 0);
+        if (before != null && before.length() == 1 && Character.isLetterOrDigit(before.charAt(0))) wordNoCorrect = true;
+        if (after != null && after.length() == 1 && Character.isLetterOrDigit(after.charAt(0))) wordNoCorrect = true;
     }
 
-    private TextView baseKey(String label, float weight) {
-        TextView k = new TextView(this);
-        k.setText(label);
-        k.setGravity(Gravity.CENTER);
-        k.setTextColor(getColor(R.color.text));
-        k.setSoundEffectsEnabled(false);
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, weight);
-        lp.setMargins(dp(2), dp(3), dp(2), dp(3));
-        k.setLayoutParams(lp);
-        return k;
-    }
-
-    private TextView charKey(final String ch, boolean small) {
-        final boolean letter = Character.isLetter(ch.charAt(0));
-        String shown = letter && shift != SHIFT_OFF ? ch.toUpperCase(Locale.ROOT) : ch;
-        TextView k = baseKey(shown, 1f);
-        k.setTextSize(small ? 17 : 21);
-        k.setBackground(keyBg(getColor(R.color.key)));
-        k.setOnTouchListener(this::pressAnimation);
-        k.setOnClickListener(v -> {
-            haptic(v);
-            type(letter && shift != SHIFT_OFF ? ch.toUpperCase(Locale.ROOT) : ch);
-            if (shift == SHIFT_ONCE && letter) {
-                shift = SHIFT_OFF;
-                buildKeys();
+    /** Ends the word being typed, fixing it first if asked and autocorrect is sure. */
+    private void finishWord(boolean correct) {
+        if (word.length() == 0) return;
+        InputConnection ic = getCurrentInputConnection();
+        String typed = word.toString();
+        String out = typed;
+        boolean keep = typed.equals(keepAsTyped);
+        if (correct && autocorrectOn && !wordSwiped && !wordNoCorrect && !keep && dict != null) {
+            Corrector.Result r = resultFor(typed);
+            if (r != null && r.autocorrect != null) out = r.autocorrect;
+        }
+        if (keep) {
+            Learn.keepTypedWord(this, typed);
+            refreshUserWords();
+        }
+        resetWord();
+        keepAsTyped = null;
+        if (ic != null) {
+            if (out.equals(typed)) {
+                ic.finishComposingText();
+            } else {
+                ic.commitText(out, 1);
+                revertFrom = out;
+                revertTo = typed;
+                revertSep = null;
             }
-        });
-        return k;
+        }
+        hideStrip();
     }
 
-    private TextView modKey(String label, float weight, View.OnClickListener click, String description) {
-        TextView k = baseKey(label, weight);
-        k.setTextSize(label.length() > 2 ? 14 : 20);
-        k.setBackground(keyBg(getColor(R.color.surface)));
-        k.setContentDescription(description);
-        if (click != null) {
-            k.setOnTouchListener(this::pressAnimation);
-            k.setOnClickListener(v -> {
-                haptic(v);
-                click.onClick(v);
+    private Corrector.Result resultFor(String typed) {
+        if (typed.equals(cachedFor) && cached != null) return cached;
+        Dict d = dict;
+        return d == null ? null : Corrector.suggest(d, typed, 3);
+    }
+
+    private void onDeleteKey() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        autoSpace = false;
+        if (word.length() > 0) {
+            if (wordSwiped) {
+                // A swiped word goes in one piece, so it comes out in one piece.
+                resetWord();
+            } else {
+                int end = word.length();
+                int start = end >= 2 && Character.isSurrogatePair(word.charAt(end - 2), word.charAt(end - 1)) ? end - 2 : end - 1;
+                word.delete(start, end);
+            }
+            if (word.length() == 0) {
+                ic.setComposingText("", 1);
+                ic.finishComposingText();
+                resetWord();
+                hideStrip();
+                updateAutoShift();
+            } else {
+                ic.setComposingText(word, 1);
+                scheduleSuggestions();
+            }
+            lastInsertedLength = 0;
+            return;
+        }
+        if (revertFrom != null && revertTo != null) {
+            // Backspace right after an autocorrect puts back exactly what was typed.
+            String sep = revertSep != null ? revertSep : "";
+            String fixed = revertFrom + sep;
+            CharSequence before = ic.getTextBeforeCursor(fixed.length(), 0);
+            if (before != null && before.toString().equals(fixed)) {
+                String typed = revertTo;
+                clearRevert();
+                ic.beginBatchEdit();
+                ic.deleteSurroundingText(fixed.length(), 0);
+                word.setLength(0);
+                word.append(typed);
+                wordNoCorrect = false;
+                keepAsTyped = typed;
+                ic.setComposingText(word, 1);
+                ic.endBatchEdit();
+                lastInsertedLength = 0;
+                scheduleSuggestions();
+                return;
+            }
+        }
+        clearRevert();
+        deleteBackward();
+    }
+
+    private void onGestureStart() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        // The touch-down already typed the first letter; the swipe replaces it.
+        if (word.length() > 0 && !wordSwiped) word.deleteCharAt(word.length() - 1);
+        shift = lastCharShift;
+        if (keys != null) keys.setShift(shift);
+        if (word.length() > 0) {
+            boolean wasSwiped = wordSwiped;
+            ic.setComposingText(word, 1);
+            finishWord(!wasSwiped);
+            ic.commitText(" ", 1);
+            if (revertFrom != null && revertSep == null) revertSep = " ";
+        } else {
+            ic.setComposingText("", 1);
+            ic.finishComposingText();
+            resetWord();
+            CharSequence before = ic.getTextBeforeCursor(1, 0);
+            if (before != null && before.length() == 1) {
+                char b = before.charAt(0);
+                if (Character.isLetterOrDigit(b) || ".,!?;:)".indexOf(b) >= 0) ic.commitText(" ", 1);
+            }
+        }
+        autoSpace = false;
+    }
+
+    private void onGesture(float[] xs, float[] ys, int n) {
+        InputConnection ic = getCurrentInputConnection();
+        Dict d = dict;
+        if (ic == null || keys == null) return;
+        if (d == null) {
+            render("Swipe is warming up. Try again in a second");
+            return;
+        }
+        float[][] g = keys.letterGeometry();
+        swipe.setGeometry(g[0], g[1]);
+        List<String> found = swipe.decode(d, xs, ys, n, 4);
+        if (found.isEmpty()) {
+            render("Didn't catch that swipe. Try again");
+            return;
+        }
+        String caseHint = shift == SHIFT_LOCK ? "AA" : shift == SHIFT_ONCE ? "A" : "a";
+        resetWord();
+        for (String w : found) swipeAlts.add(Dict.matchCase(caseHint, w));
+        word.append(swipeAlts.get(0));
+        wordSwiped = true;
+        ic.setComposingText(word, 1);
+        lastInsertedLength = 0;
+        clearRevert();
+        if (shift == SHIFT_ONCE) {
+            shift = SHIFT_OFF;
+            keys.setShift(shift);
+        }
+        showSwipeStrip();
+    }
+
+    // ---- suggestion strip ------------------------------------------------------------
+
+    private void scheduleSuggestions() {
+        if (suggestions == null) return;
+        if (!suggestOn || word.length() == 0 || wordSwiped) {
+            if (!wordSwiped) hideStrip();
+            return;
+        }
+        final Dict d = dict;
+        if (d == null) return;
+        final String typed = word.toString();
+        final int seq = ++suggestSeq;
+        typing.execute(() -> {
+            final Corrector.Result r = Corrector.suggest(d, typed, 3);
+            ui.post(() -> {
+                if (seq != suggestSeq || !typed.equals(word.toString())) return;
+                cachedFor = typed;
+                cached = r;
+                showTypedStrip(typed, r);
             });
-        }
-        return k;
+        });
     }
 
-    private RippleDrawable keyBg(int color) {
-        GradientDrawable g = new GradientDrawable();
-        g.setCornerRadius(dp(9));
-        g.setColor(color);
-        return new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), g, null);
+    private void showTypedStrip(String typed, Corrector.Result r) {
+        if (recording || busy) return;
+        int n = 0;
+        if (r.autocorrect != null && autocorrectOn && !wordNoCorrect && !typed.equals(keepAsTyped)) {
+            setCell(n++, "“" + typed + "”", typed, CELL_KEEP, false);
+            setCell(n++, r.autocorrect, r.autocorrect, CELL_WORD, true);
+            for (String s : r.suggestions) {
+                if (n >= 3) break;
+                if (!s.equals(r.autocorrect)) setCell(n++, s, s, CELL_WORD, false);
+            }
+        } else {
+            if (!r.valid && !r.suggestions.isEmpty()) setCell(n++, "“" + typed + "”", typed, CELL_KEEP, false);
+            for (String s : r.suggestions) {
+                if (n >= 3) break;
+                setCell(n++, s, s, CELL_WORD, false);
+            }
+        }
+        if (n == 0) {
+            hideStrip();
+            return;
+        }
+        while (n < 3) setCell(n++, "", null, CELL_WORD, false);
+        showStrip();
     }
 
-    private boolean pressAnimation(View v, MotionEvent e) {
-        switch (e.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(60).start();
-                break;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                v.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
-                break;
-            default:
-                break;
+    private void showSwipeStrip() {
+        if (suggestions == null || swipeAlts.size() < 2) {
+            hideStrip();
+            return;
         }
-        return false;
+        int n = 0;
+        for (int i = 1; i < swipeAlts.size() && n < 3; i++) setCell(n++, swipeAlts.get(i), swipeAlts.get(i), CELL_SWIPE, false);
+        while (n < 3) setCell(n++, "", null, CELL_SWIPE, false);
+        showStrip();
+    }
+
+    private void setCell(int i, String label, String value, int kind, boolean strong) {
+        TextView c = cells[i];
+        if (c == null) return;
+        c.setText(label);
+        c.setTypeface(strong ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+        c.setTextColor(strong ? toneColor : getColor(R.color.text));
+        c.setEnabled(value != null);
+        cellWord[i] = value;
+        cellKind[i] = kind;
+    }
+
+    private void showStrip() {
+        if (suggestions == null || status == null) return;
+        suggestions.setVisibility(View.VISIBLE);
+        status.setVisibility(View.GONE);
+        if (!compactChip) {
+            compactChip = true;
+            paintToneChip(false);
+        }
+    }
+
+    private void hideStrip() {
+        if (suggestions == null || status == null) return;
+        if (suggestions.getVisibility() != View.VISIBLE && !compactChip) return;
+        suggestions.setVisibility(View.GONE);
+        status.setVisibility(View.VISIBLE);
+        if (compactChip) {
+            compactChip = false;
+            paintToneChip(false);
+        }
+    }
+
+    private void pickSuggestion(int i) {
+        String w = cellWord[i];
+        InputConnection ic = getCurrentInputConnection();
+        if (w == null || ic == null) return;
+        if (keys != null) keys.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        if (cellKind[i] == CELL_SWIPE && wordSwiped) {
+            // Swap in the other word and keep it open, like a fresh swipe.
+            int at = swipeAlts.indexOf(w);
+            if (at > 0) {
+                swipeAlts.remove(at);
+                swipeAlts.add(0, w);
+            }
+            word.setLength(0);
+            word.append(w);
+            ic.setComposingText(word, 1);
+            showSwipeStrip();
+            return;
+        }
+        boolean keep = cellKind[i] == CELL_KEEP;
+        resetWord();
+        keepAsTyped = null;
+        clearRevert();
+        ic.beginBatchEdit();
+        ic.commitText(w, 1);
+        ic.commitText(" ", 1);
+        ic.endBatchEdit();
+        autoSpace = true;
+        lastInsertedLength = 0;
+        if (keep) {
+            Learn.keepTypedWord(this, w);
+            refreshUserWords();
+        }
+        hideStrip();
+        updateAutoShift();
     }
 
     private void onShift() {
@@ -893,30 +1317,47 @@ public class MurmurIME extends InputMethodService {
             shift = SHIFT_ONCE;
         }
         lastShiftTap = now;
-        buildKeys();
+        if (keys != null) keys.setShift(shift);
     }
 
     private void onSpace() {
         long now = SystemClock.uptimeMillis();
         InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        boolean hadWord = word.length() > 0;
+        if (hadWord) {
+            clearRevert();
+            finishWord(true);
+        }
         // Double-tap space for ". ", like most phone keyboards.
-        if (ic != null && now - lastSpaceTap < 450) {
+        if (!hadWord && now - lastSpaceTap < 450) {
             CharSequence before = ic.getTextBeforeCursor(2, 0);
             if (before != null && before.length() == 2 && before.charAt(1) == ' '
                     && Character.isLetterOrDigit(before.charAt(0))) {
+                ic.beginBatchEdit();
                 ic.deleteSurroundingText(1, 0);
-                type(". ");
+                ic.commitText(". ", 1);
+                ic.endBatchEdit();
                 lastSpaceTap = 0;
+                clearRevert();
+                autoSpace = false;
+                lastInsertedLength = 0;
+                updateAutoShift();
                 return;
             }
         }
+        if (!hadWord) clearRevert();
         lastSpaceTap = now;
-        type(" ");
+        ic.commitText(" ", 1);
+        if (revertFrom != null && revertSep == null) revertSep = " ";
+        autoSpace = false;
+        lastInsertedLength = 0;
+        updateAutoShift();
     }
 
     /** Capitalizes the next letter at the start of a sentence, when the field wants that. */
     private void updateAutoShift() {
-        if (keys == null || shift == SHIFT_LOCK || symbols) return;
+        if (keys == null || shift == SHIFT_LOCK || symbols || word.length() > 0) return;
         int want = SHIFT_OFF;
         EditorInfo info = getCurrentInputEditorInfo();
         InputConnection ic = getCurrentInputConnection();
@@ -927,8 +1368,15 @@ public class MurmurIME extends InputMethodService {
         }
         if (want != shift) {
             shift = want;
-            buildKeys();
+            keys.setShift(shift);
         }
+    }
+
+    private RippleDrawable keyBg(int color) {
+        GradientDrawable g = new GradientDrawable();
+        g.setCornerRadius(dp(9));
+        g.setColor(color);
+        return new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), g, null);
     }
 
     private void setupSwitcher(View switcher) {
@@ -972,6 +1420,9 @@ public class MurmurIME extends InputMethodService {
     }
 
     private void pressEnter() {
+        finishWord(true);
+        clearRevert();
+        autoSpace = false;
         // Sending usually clears the field, so learn from the user's fixes first.
         learnFromFixes(getCurrentInputEditorInfo());
         if (!sendDefaultEditorAction(true)) sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER);
@@ -1027,6 +1478,7 @@ public class MurmurIME extends InputMethodService {
     private void render(String message) {
         if (status == null) return;
         offeredWord = null;
+        hideStrip();
         status.setText(message);
         cancel.setVisibility(recording || busy ? View.VISIBLE : View.GONE);
         if (!recording) {

@@ -27,6 +27,23 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.3
+
+- **Faster keys.** Letters go in the instant your finger touches the key, not when it lifts.
+  Every finger is tracked on its own, so fast two-thumb typing doesn't drop or double letters,
+  and a tap that lands in the gap between keys goes to the nearest one. A bubble shows the
+  letter you hit, with a light buzz (and an optional click sound).
+- **Autocorrect** with a suggestion strip above the keys. Typos are fixed when you hit space
+  or punctuation ("teh" → "the", "dont" → "don't", "im" → "I'm"). Backspace right after a fix
+  puts back what you typed, and Murmur leaves that word alone from then on. Tap the quoted
+  word in the strip to keep exactly what you typed. Your vocabulary words and learned names
+  are never "fixed".
+- **Swipe typing.** Slide across the letters without lifting; a trail follows your finger and
+  the word goes in when you let go. Other guesses show in the strip; tap one to swap it in.
+  Backspace removes a swiped word in one go.
+- No typing help in password, email and web address fields.
+- Settings → Typing has switches for autocorrect, swipe, vibration and key sound.
+
 ## What's new in 1.2
 
 - **Tone chip** (top left of the keyboard): Auto, Professional, Casual, Hype, Short & sweet,
@@ -108,3 +125,9 @@ The microphone is only open while the red stop button is showing.
 - `wear/`: watch app (`MainActivity` setup, round keyboard layout)
 - `murmur.jks`: signing key used for every build so updates install over the old app.
   Anyone with this file can sign an APK that updates Murmur, so only install builds from this repo.
+
+## Credits
+
+The English word list behind autocorrect and swipe is built from word counts in
+[hermitdave/FrequencyWords](https://github.com/hermitdave/FrequencyWords) (OpenSubtitles 2018),
+licensed CC BY-SA 4.0. `tools/make_words.py` rebuilds it.
