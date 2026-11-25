@@ -65,6 +65,11 @@ final class ChatLog {
         Prefs.sp(c).edit().putLong(Prefs.CHAT_OPEN_AT, System.currentTimeMillis()).apply();
     }
 
+    /** True when the open-chat reader has named this chat as the one on screen in that app. */
+    static boolean namedOpen(String pkg, String name) {
+        return name != null && !name.isEmpty() && pkg != null && pkg.equals(openPkg) && name.equals(openName);
+    }
+
     /**
      * The chat he's typing in: the open chat when the reader knows it. When it can't tell which
      * chat (or the app isn't one it reads), the app as a whole, so a switch turned on for one

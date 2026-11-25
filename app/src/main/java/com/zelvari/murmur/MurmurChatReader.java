@@ -109,7 +109,8 @@ public class MurmurChatReader extends AccessibilityService {
             for (String t : texts) bubbles.add(new Bubble(t, false));
         }
         // Tells the keyboard which chat is open, so its strip shows that chat's thread.
-        final String from = chatScreen ? chatName(root, pkg) : "";
+        final String from = chatScreen ? steadyName(root, pkg) : "";
+        if (!chatScreen) nameWin = "";
         ChatLog.setOpen(this, pkg, from);
         if (!chatScreen) return;
         String key = ChatLog.key(pkg, from);
@@ -248,8 +249,41 @@ public class MurmurChatReader extends AccessibilityService {
         return false;
     }
 
+    private String nameWin = "", lastName = "", pendingName = "";
+    private boolean nameById;
+
+    /**
+     * The open chat's name, held steady. 1.9 read it fresh on every change, and in apps without a
+     * known title view a status line or a blank read could rename the chat for a moment, which
+     * switched the keyboard to a chat with sending off. Now a blank read keeps the name, and a
+     * different guess from the top of the screen counts only once it reads the same twice.
+     */
+    private String steadyName(AccessibilityNodeInfo root, String pkg) {
+        String n = chatName(root, pkg);
+        String win = pkg + "#" + root.getWindowId();
+        if (!win.equals(nameWin)) {
+            nameWin = win;
+            lastName = n;
+            pendingName = "";
+            return n;
+        }
+        if (n.equals(lastName)) {
+            pendingName = "";
+            return n;
+        }
+        if (n.isEmpty()) return lastName;
+        if (nameById || n.equals(pendingName)) {
+            lastName = n;
+            pendingName = "";
+            return n;
+        }
+        pendingName = n;
+        return lastName;
+    }
+
     /** The open chat's name from the app's title bar, if it can be found. */
     private String chatName(AccessibilityNodeInfo root, String pkg) {
+        nameById = true;
         String[] ids = {pkg + ":id/conversation_contact_name", pkg + ":id/conversation_title",
                 pkg + ":id/toolbar_title", pkg + ":id/title"};
         for (String id : ids) {
@@ -262,6 +296,7 @@ public class MurmurChatReader extends AccessibilityService {
             }
         }
         // Other apps: the name at the top of the chat, so each person still gets their own chat.
+        nameById = false;
         try {
             int screenH = getResources().getDisplayMetrics().heightPixels;
             String[] best = {""};

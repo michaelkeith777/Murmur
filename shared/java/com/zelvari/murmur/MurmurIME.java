@@ -237,6 +237,7 @@ public class MurmurIME extends InputMethodService {
         inputShown = true;
         editorPkg = info.packageName == null ? "" : info.packageName;
         incomingExpanded = false;
+        chat = null; // a new text box: pick its chat afresh
         pickChat();
         paintTranslate();
         if (keys != null && root != null) fitWidth(root.getWidth() > 0 ? root.getWidth()
@@ -983,7 +984,10 @@ public class MurmurIME extends InputMethodService {
                         setChatSend(true);
                         if (!fieldEmpty()) translateTyped();
                     } else if (chat != null && fieldEmpty()) {
-                        setChatSend(false);
+                        // 1.9 turned sending off here, so a second tap quietly sent the next
+                        // message in English. Off is now on the long-press menu and in Live Translate.
+                        render("Sending to " + chat.title() + " in " + Translate.theirs(this)
+                                + " · talk, or type and tap ⇄. Hold ⇄ to turn it off");
                     } else {
                         translateTyped();
                     }
@@ -1434,7 +1438,18 @@ public class MurmurIME extends InputMethodService {
 
     /** Finds the chat he's typing in and uses its language and switch. */
     private void pickChat() {
-        chat = Translate.texting(this) && !getPackageName().equals(editorPkg) ? ChatLog.forEditor(this, editorPkg) : null;
+        ChatLog.Chat next = Translate.texting(this) && !getPackageName().equals(editorPkg)
+                ? ChatLog.forEditor(this, editorPkg) : null;
+        if (next != null && chat != null && chat.pkg.equals(next.pkg) && !chat.key.equals(next.key)
+                && (!chat.name.isEmpty() || chat.send) && !ChatLog.namedOpen(next.pkg, next.name)) {
+            // Stay on the chat he's typing in. 1.9 moved to another chat whenever a message came
+            // in from someone else or the chat's name couldn't be read for a moment, and that
+            // chat's switch (usually off) sent his message in English. Only the reader naming
+            // another chat on screen moves it now.
+            ChatLog.Chat stored = ChatLog.get(this, chat.key);
+            next = stored != null ? stored : chat;
+        }
+        chat = next;
         Translate.chatLang = chat == null ? "" : chat.lang;
         Translate.chatOff = chat != null && chat.off;
         Translate.chatSend = chat != null && chat.send;

@@ -27,6 +27,18 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.2
+
+- **Sending in Spanish stays on for that chat.** In 1.9 a chat that had sending turned on could
+  slip back to English: a message from someone else, or a moment when Murmur couldn't read the
+  chat's name, moved the keyboard to another chat with sending off. The keyboard now stays on
+  the chat you're typing in until a different chat is actually open.
+- **⇄ no longer turns sending off by accident.** Tapping ⇄ in an empty box just says which
+  language this chat sends in. Turn it off by holding ⇄ and picking "Off for …", or in Live
+  Translate.
+- Talking sends in their language straight away. Typed text goes into their language when you
+  tap ⇄ before sending.
+
 ## What's new in 1.9.1
 
 - **Per-chat translate, fixed.** 1.9 stopped showing their replies in English on the keyboard
