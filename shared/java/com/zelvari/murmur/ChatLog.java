@@ -51,7 +51,66 @@ final class ChatLog {
     private static List<Chat> chats;
 
     static String key(String pkg, String name) {
-        return (pkg == null ? "" : pkg) + "|" + (name == null ? "" : name.trim().toLowerCase(Locale.ROOT));
+        return (pkg == null ? "" : pkg) + "|" + normName(name);
+    }
+
+    /**
+     * A chat name with case, emoji and punctuation left out. 1.9.5 matched names exactly, so a
+     * reply from a notification titled "Elizabeth ❤️" or "+1 (555) 010-2030" filed under another
+     * chat than the one on screen, and never showed in the keyboard's bar.
+     */
+    static String normName(String name) {
+        if (name == null) return "";
+        StringBuilder b = new StringBuilder();
+        boolean space = false;
+        for (int i = 0; i < name.length(); ) {
+            int cp = name.codePointAt(i);
+            i += Character.charCount(cp);
+            if (Character.isLetterOrDigit(cp)) {
+                if (space && b.length() > 0) b.append(' ');
+                space = false;
+                b.appendCodePoint(Character.toLowerCase(cp));
+            } else if (Character.isWhitespace(cp)) {
+                space = true;
+            }
+        }
+        String out = b.toString();
+        // A phone number, as an unsaved contact shows: its last ten digits, however it's written.
+        String digits = out.replace(" ", "");
+        if (!digits.isEmpty() && digits.chars().allMatch(Character::isDigit) && digits.length() >= 7) {
+            return digits.length() > 10 ? digits.substring(digits.length() - 10) : digits;
+        }
+        return out;
+    }
+
+    /**
+     * True when two names are the same chat: the same once emoji and case are left out, or one is
+     * the other's first words ("Elizabeth" and "Elizabeth Smith"). "Byron" and "Byron's Mom" are not.
+     */
+    static boolean sameName(String a, String b) {
+        String x = normName(a), y = normName(b);
+        if (x.isEmpty() || y.isEmpty()) return false;
+        if (x.equals(y)) return true;
+        String shorter = x.length() < y.length() ? x : y, longer = shorter == x ? y : x;
+        return longer.startsWith(shorter + " ");
+    }
+
+    /** The saved chat for this app and name: the same name first, else the one name that matches. */
+    private static Chat findIn(List<Chat> all, String pkg, String name) {
+        String k = key(pkg, name);
+        for (Chat ch : all) if (ch.key.equals(k)) return ch;
+        if (normName(name).isEmpty()) return null;
+        Chat hit = null;
+        for (Chat ch : all) {
+            if (!ch.pkg.equals(pkg == null ? "" : pkg) || !sameName(ch.name, name)) continue;
+            if (hit != null) return null;
+            hit = ch;
+        }
+        return hit;
+    }
+
+    static synchronized Chat find(Context c, String pkg, String name) {
+        return findIn(load(c), pkg, name);
     }
 
     // ---- the chat open on screen, as the open-chat reader last saw it ----------------
@@ -78,7 +137,8 @@ final class ChatLog {
 
     /** True when the reader's latest read of the screen names this chat, sure or not. */
     static boolean readsOpen(String pkg, String name) {
-        return name != null && !name.isEmpty() && pkg != null && pkg.equals(openPkg) && name.equals(openName);
+        return name != null && !name.isEmpty() && pkg != null && pkg.equals(openPkg)
+                && (name.equals(openName) || sameName(name, openName));
     }
 
     /** What the reader last read in this app, for the status card: the name, a guess, or nothing. */
@@ -97,7 +157,8 @@ final class ChatLog {
         List<Chat> all = load(c);
         String name = editorPkg.equals(openPkg) ? openName : "";
         String k = key(editorPkg, name);
-        for (Chat ch : all) if (ch.key.equals(k)) return ch;
+        Chat found = findIn(all, editorPkg, name);
+        if (found != null) return found;
         if (name.isEmpty()) {
             // The reader couldn't name the open chat (it may not be running, or the chat came from
             // a notification): the chat in this app with the latest message, as 1.8 did. 1.9
@@ -162,8 +223,7 @@ final class ChatLog {
                                  String orig, String text, boolean mine) {
         List<Chat> all = load(c);
         String k = key(pkg, name);
-        Chat ch = null;
-        for (Chat x : all) if (x.key.equals(k)) ch = x;
+        Chat ch = findIn(all, pkg, name);
         if (ch == null) {
             ch = new Chat();
             ch.key = k;
@@ -259,7 +319,18 @@ final class ChatLog {
                     m.at = mo.optLong("at");
                     ch.msgs.add(m);
                 }
-                if (!ch.key.isEmpty()) chats.add(ch);
+                if (ch.key.isEmpty()) continue;
+                // Keys saved before 1.9.6 kept emoji and punctuation: file them the new way.
+                if (!ch.key.startsWith("feed|")) ch.key = key(ch.pkg, ch.name);
+                Chat same = null;
+                for (Chat x : chats) if (x.key.equals(ch.key)) same = x;
+                if (same == null) {
+                    chats.add(ch);
+                } else {
+                    same.msgs.addAll(ch.msgs);
+                    java.util.Collections.sort(same.msgs, (m1, m2) -> Long.compare(m1.at, m2.at));
+                    same.at = Math.max(same.at, ch.at);
+                }
             }
         } catch (Exception ignored) {
             // a damaged file just starts the history over

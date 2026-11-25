@@ -63,6 +63,10 @@ final class Prefs {
     /** What the keyboard last decided (app, chat, language) and how the last message went out. */
     static final String DIAG_KEYBOARD = "diag_keyboard";
     static final String DIAG_SENT = "diag_sent";
+    /** What happened to the last reply: translated, shown as is, or skipped and why. */
+    static final String DIAG_REPLY = "diag_reply";
+    /** Saved info (address, email, phone) the keyboard fills in with one tap, as JSON. */
+    static final String SAVED_INFO = "saved_info";
     /** Texting mode diagnostics, shown in settings: when the reader connected and what it last did. */
     static final String DIAG_CONNECTED = "diag_connected";
     static final String DIAG_LAST = "diag_last";

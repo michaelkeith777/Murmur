@@ -942,6 +942,13 @@ public class MurmurIME extends InputMethodService {
     private View root;
     private TextView rewriteBtn;
     private TextView toolsBtn;
+    /** 👤: his saved address, email and phone numbers, one tap to fill in. */
+    private TextView savedBtn;
+    /** "📋 Paste 482913": shows for a few minutes after he copies something. */
+    private TextView pasteChip;
+    private String pasteValue, pasteFull;
+    private long pasteStamp, pastedStamp;
+    static final long PASTE_FOR = 3 * 60_000L;
     private View keyRow;
     private View panelScroll;
     private LinearLayout panelList;
@@ -952,7 +959,7 @@ public class MurmurIME extends InputMethodService {
     private ClipboardManager clipboard;
     private LinkedHashMap<String, String> shortcuts = new LinkedHashMap<>();
 
-    private static final String TAB_CLIPS = "clips", TAB_SHORTCUTS = "shortcuts", TAB_LOOK = "look";
+    private static final String TAB_CLIPS = "clips", TAB_SHORTCUTS = "shortcuts", TAB_LOOK = "look", TAB_SAVED = "saved";
 
     // Rewrite options: id, emoji, label, instruction.
     private static final String[][] REWRITES = {
@@ -1007,6 +1014,7 @@ public class MurmurIME extends InputMethodService {
             closePanel();
             showRewritePicker();
         });
+        addSavedAndPaste();
         if (toolsBtn != null) toolsBtn.setOnClickListener(v -> {
             if (panelScroll != null && panelScroll.getVisibility() == View.VISIBLE) {
                 closePanel();
@@ -1022,6 +1030,105 @@ public class MurmurIME extends InputMethodService {
                 clipboard = null;
             }
         }
+    }
+
+    /**
+     * Adds 👤 (saved info) next to 📋, and the paste chip before 文A. Made here rather than in the
+     * layout so the watch keyboard, which has no room for them, is left as it is.
+     */
+    private void addSavedAndPaste() {
+        if (toolsBtn == null || !(toolsBtn.getParent() instanceof LinearLayout)) return;
+        LinearLayout bar = (LinearLayout) toolsBtn.getParent();
+        savedBtn = new TextView(this);
+        savedBtn.setText("👤");
+        savedBtn.setTextSize(17);
+        savedBtn.setGravity(Gravity.CENTER);
+        savedBtn.setContentDescription("Your saved info: address, email, phone numbers. Tap one to fill it in");
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(38), dp(34));
+        lp.setMarginStart(dp(2));
+        savedBtn.setLayoutParams(lp);
+        savedBtn.setOnClickListener(v -> {
+            if (panelScroll != null && panelScroll.getVisibility() == View.VISIBLE && TAB_SAVED.equals(panelTab)) {
+                closePanel();
+            } else {
+                openPanel(TAB_SAVED);
+            }
+        });
+        bar.addView(savedBtn, bar.indexOfChild(toolsBtn));
+
+        pasteChip = new TextView(this);
+        pasteChip.setTextSize(13);
+        pasteChip.setGravity(Gravity.CENTER);
+        pasteChip.setSingleLine(true);
+        pasteChip.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        pasteChip.setMaxWidth(dp(170));
+        pasteChip.setPadding(dp(10), 0, dp(10), 0);
+        pasteChip.setTextColor(0xFFFFFFFF);
+        pasteChip.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30));
+        cp.setMarginStart(dp(2));
+        cp.gravity = Gravity.CENTER_VERTICAL;
+        pasteChip.setLayoutParams(cp);
+        pasteChip.setVisibility(View.GONE);
+        pasteChip.setOnClickListener(v -> pasteFromChip(false));
+        pasteChip.setOnLongClickListener(v -> {
+            pasteFromChip(true);
+            return true;
+        });
+        int at = translateBtn != null && translateBtn.getParent() == bar ? bar.indexOfChild(translateBtn) : bar.indexOfChild(savedBtn);
+        bar.addView(pasteChip, at);
+    }
+
+    /**
+     * Shows "📋 Paste" for what he copied in the last few minutes. A verification code is offered
+     * on its own, even out of a longer message ("Your code is 482913" pastes 482913); a hold
+     * pastes the whole thing. Hidden while word suggestions are up, and once it's been pasted.
+     */
+    private void refreshPasteChip() {
+        if (pasteChip == null) return;
+        String label = null;
+        try {
+            if (clipboard != null && clipboard.hasPrimaryClip()
+                    && (suggestions == null || suggestions.getVisibility() != View.VISIBLE)) {
+                ClipData clip = clipboard.getPrimaryClip();
+                ClipDescription d = clip == null ? null : clip.getDescription();
+                CharSequence t = clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).getText() : null;
+                long stamp = d != null ? d.getTimestamp() : 0;
+                if (t != null && t.toString().trim().length() > 0 && stamp != pastedStamp
+                        && System.currentTimeMillis() - stamp < PASTE_FOR) {
+                    String full = t.toString();
+                    String code = SavedInfo.codeIn(full);
+                    boolean sensitive = d.getExtras() != null
+                            && d.getExtras().getBoolean("android.content.extra.IS_SENSITIVE", false);
+                    pasteFull = full;
+                    pasteValue = code != null ? code : full;
+                    pasteStamp = stamp;
+                    if (code != null) label = "📋 Paste " + code;
+                    else if (sensitive) label = "📋 Paste ••••";
+                    else {
+                        String one = full.trim().replace('\n', ' ');
+                        label = "📋 Paste " + (one.length() > 16 ? one.substring(0, 16) + "…" : one);
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // the system may refuse clipboard access
+        }
+        if (label == null) {
+            pasteChip.setVisibility(View.GONE);
+            return;
+        }
+        pasteChip.setText(label);
+        pasteChip.setBackground(keyBg(toneColor));
+        pasteChip.setVisibility(View.VISIBLE);
+    }
+
+    private void pasteFromChip(boolean whole) {
+        String v = whole ? pasteFull : pasteValue;
+        if (v == null || v.isEmpty()) return;
+        pastedStamp = pasteStamp;
+        pasteText(v);
+        if (pasteChip != null) pasteChip.setVisibility(View.GONE);
     }
 
     /** Picks up theme, one-handed mode and shortcuts changed in the app or on the keyboard. */
@@ -1812,6 +1919,8 @@ public class MurmurIME extends InputMethodService {
     // ---- clipboard, shortcuts and look panel ----------------------------------------
 
     private void saveCurrentClip() {
+        // The paste chip offers a new copy even when the history is off or it's a password box.
+        ui.post(this::refreshPasteChip);
         boolean history = Prefs.flag(this, Prefs.CLIP_HISTORY, true);
         if (!history && !Translate.texting(this)) return;
         // Never keep what's copied while a password field is open.
@@ -1852,7 +1961,8 @@ public class MurmurIME extends InputMethodService {
 
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.addView(tabButton("📋 Clipboard", TAB_CLIPS));
+        tabs.addView(tabButton("👤 My info", TAB_SAVED));
+        tabs.addView(tabButton("📋 Clips", TAB_CLIPS));
         tabs.addView(tabButton("⚡ Shortcuts", TAB_SHORTCUTS));
         tabs.addView(tabButton("🎨 Look", TAB_LOOK));
         TextView back = smallButton("⌨", v -> closePanel());
@@ -1861,6 +1971,7 @@ public class MurmurIME extends InputMethodService {
         panelList.addView(tabs);
 
         if (TAB_CLIPS.equals(tab)) fillClips();
+        else if (TAB_SAVED.equals(tab)) fillSaved();
         else if (TAB_SHORTCUTS.equals(tab)) fillShortcuts();
         else fillLook();
 
@@ -1973,6 +2084,127 @@ public class MurmurIME extends InputMethodService {
             openPanel(TAB_CLIPS);
         });
         panelList.addView(clear);
+    }
+
+    /** Value whose ✕ was tapped once, waiting for "Delete". */
+    private String deleteAsk;
+
+    /** 👤 My info: tap one to fill it in; save what's in the box; fix or delete one. */
+    private void fillSaved() {
+        List<SavedInfo.Item> items = SavedInfo.list(this);
+        if (items.isEmpty()) {
+            panelList.addView(hint("Save your address, email or phone numbers here. Type or say one in any box, "
+                    + "then tap “Save what's in the box”. After that, one tap fills it in anywhere. It stays on this phone."));
+        }
+        for (SavedInfo.Item k : items) {
+            final String value = k.value;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView t = new TextView(this);
+            if (value.equals(deleteAsk)) {
+                t.setText("Delete " + k.label + "?");
+            } else {
+                android.text.SpannableStringBuilder b = new android.text.SpannableStringBuilder(k.label);
+                b.setSpan(new android.text.style.StyleSpan(Typeface.BOLD), 0, b.length(), 0);
+                b.append("  ").append(value.replace('\n', ' '));
+                t.setText(b);
+            }
+            t.setMaxLines(2);
+            t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            t.setTextSize(15);
+            t.setTextColor(tc[Theme.TEXT]);
+            t.setPadding(dp(10), dp(8), dp(8), dp(8));
+            t.setMinHeight(dp(44));
+            t.setGravity(Gravity.CENTER_VERTICAL);
+            t.setBackground(keyBg(tc[Theme.KEY]));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(dp(2), dp(2), dp(2), dp(2));
+            t.setLayoutParams(lp);
+            row.addView(t);
+            if (value.equals(deleteAsk)) {
+                TextView yes = smallButton("Delete", v -> {
+                    deleteAsk = null;
+                    SavedInfo.remove(this, value);
+                    openPanel(TAB_SAVED);
+                });
+                yes.setTextSize(13);
+                yes.setLayoutParams(new LinearLayout.LayoutParams(dp(64), dp(38)));
+                row.addView(yes);
+                row.addView(smallButton("✕", v -> {
+                    deleteAsk = null;
+                    openPanel(TAB_SAVED);
+                }));
+            } else {
+                t.setOnClickListener(v -> pasteText(value));
+                TextView fix = smallButton("✎", v -> {
+                    // Puts it in the box to fix; saving it again replaces the old one.
+                    SavedInfo.remove(this, value);
+                    pasteText(value);
+                    render("Fix it in the box, then tap 👤 and “Save what's in the box”");
+                });
+                fix.setContentDescription("Fix it");
+                row.addView(fix);
+                TextView del = smallButton("✕", v -> {
+                    deleteAsk = value;
+                    openPanel(TAB_SAVED);
+                });
+                del.setContentDescription("Delete");
+                row.addView(del);
+            }
+            panelList.addView(row);
+        }
+        TextView add = new TextView(this);
+        add.setText("＋ Save what's in the box");
+        add.setTextSize(15);
+        add.setGravity(Gravity.CENTER);
+        add.setTextColor(0xFFFFFFFF);
+        add.setTypeface(Typeface.DEFAULT_BOLD);
+        add.setBackground(keyBg(toneColor));
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44));
+        ap.setMargins(dp(2), dp(8), dp(2), dp(4));
+        add.setLayoutParams(ap);
+        add.setOnClickListener(v -> saveBoxText());
+        panelList.addView(add);
+    }
+
+    /** Saves the selected text, or everything in the box, as one saved item. */
+    private void saveBoxText() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        if (passwordField()) {
+            render("Murmur doesn't save what's in a password box");
+            closePanel();
+            return;
+        }
+        finishWord(false);
+        CharSequence sel = ic.getSelectedText(0);
+        String text;
+        if (sel != null && sel.toString().trim().length() > 0) {
+            text = sel.toString();
+        } else {
+            CharSequence before = ic.getTextBeforeCursor(SavedInfo.MAX_CHARS, 0);
+            CharSequence after = ic.getTextAfterCursor(SavedInfo.MAX_CHARS, 0);
+            text = (before == null ? "" : before.toString()) + (after == null ? "" : after.toString());
+        }
+        String label = SavedInfo.add(this, text);
+        if (text.trim().isEmpty()) {
+            render("Type or say it in the box first, then tap Save");
+        } else if (label == null) {
+            render("That's already saved");
+        } else {
+            render("Saved as " + label + " · tap 👤 to fill it in anywhere");
+        }
+        openPanel(TAB_SAVED);
+    }
+
+    private boolean passwordField() {
+        EditorInfo info = getCurrentInputEditorInfo();
+        if (info == null) return false;
+        int var = info.inputType & InputType.TYPE_MASK_VARIATION;
+        return var == InputType.TYPE_TEXT_VARIATION_PASSWORD || var == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
+                || var == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                || var == InputType.TYPE_NUMBER_VARIATION_PASSWORD;
     }
 
     private void fillShortcuts() {
@@ -2290,6 +2522,15 @@ public class MurmurIME extends InputMethodService {
             if (word.length() == 0) startWord(ic);
             word.append(s);
             ic.setComposingText(word, 1);
+            autoSpace = false;
+        } else if (s.length() > 1) {
+            // ".com": joins the word before it as typed, with no space and no correction.
+            if (word.length() > 0) finishWord(false);
+            if (autoSpace) {
+                CharSequence before = ic.getTextBeforeCursor(1, 0);
+                if (before != null && before.length() == 1 && before.charAt(0) == ' ') ic.deleteSurroundingText(1, 0);
+            }
+            ic.commitText(s, 1);
             autoSpace = false;
         } else {
             if (word.length() > 0) finishWord(punct || c == '"');
@@ -2683,6 +2924,7 @@ public class MurmurIME extends InputMethodService {
         if (suggestions == null || status == null) return;
         suggestions.setVisibility(View.VISIBLE);
         status.setVisibility(View.GONE);
+        if (pasteChip != null) pasteChip.setVisibility(View.GONE);
         // On a narrow screen the suggestions need the room more than ✍️, 📋 and 文A do.
         setExtrasShown(!Boolean.TRUE.equals(narrow));
         if (!compactChip) {
@@ -2693,7 +2935,7 @@ public class MurmurIME extends InputMethodService {
 
     private void setExtrasShown(boolean shown) {
         int v = shown ? View.VISIBLE : View.GONE;
-        for (View b : new View[]{rewriteBtn, toolsBtn, translateBtn}) {
+        for (View b : new View[]{rewriteBtn, toolsBtn, translateBtn, savedBtn}) {
             if (b != null && b.getVisibility() != v) b.setVisibility(v);
         }
     }
@@ -2701,8 +2943,12 @@ public class MurmurIME extends InputMethodService {
     private void hideStrip() {
         setExtrasShown(true);
         if (suggestions == null || status == null) return;
-        if (suggestions.getVisibility() != View.VISIBLE && !compactChip) return;
+        if (suggestions.getVisibility() != View.VISIBLE && !compactChip) {
+            refreshPasteChip();
+            return;
+        }
         suggestions.setVisibility(View.GONE);
+        refreshPasteChip();
         status.setVisibility(View.VISIBLE);
         if (compactChip) {
             compactChip = false;

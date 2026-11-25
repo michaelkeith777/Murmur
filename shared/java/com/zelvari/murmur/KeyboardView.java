@@ -305,8 +305,10 @@ public class KeyboardView extends View {
         add(4, new Key(MODE, null, symbols ? "ABC" : "?123", 1.4f, true));
         add(4, new Key(SWITCH, null, "🌐", 1f, true));
         add(4, new Key(CHAR, ",", ",", 1f, false));
-        add(4, new Key(SPACE, " ", "space", 4f, true));
+        add(4, new Key(SPACE, " ", "space", 3.2f, true));
         add(4, new Key(CHAR, ".", ".", 1f, false));
+        // One tap for the end of an email or web address.
+        add(4, new Key(CHAR, ".com", ".com", 1.3f, true));
         add(4, new Key(ENTER, null, "⏎", 1.5f, false));
     }
 
@@ -400,7 +402,7 @@ public class KeyboardView extends View {
 
     private void drawLabel(Canvas c, Key k) {
         String label = labelOf(k);
-        boolean word = label.length() > 1 && k.kind != CHAR;
+        boolean word = label.length() > 1 && (k.kind != CHAR || label.length() > 2);
         float size = k.kind == SPACE ? 13 : word ? 14 : k.small ? 17 : 22;
         textPaint.setTextSize(size * density * (k.kind == CHAR ? labelScale : 1f));
         textPaint.setTypeface(k.kind == SHIFT && shift == SHIFT_LOCK ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);

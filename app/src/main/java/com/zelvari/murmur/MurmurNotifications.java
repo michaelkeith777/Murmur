@@ -90,6 +90,10 @@ public class MurmurNotifications extends NotificationListenerService {
         return COUNT.matcher(title.toString()).replaceAll("").trim();
     }
 
+    private static final java.util.regex.Pattern SUMMARY_LINE = java.util.regex.Pattern.compile("(?s)^([^:\\n]{1,40}):\\s+(.+)$");
+    private static final java.util.regex.Pattern COUNT_TITLE = java.util.regex.Pattern.compile(
+            "(?i)^\\d+\\s+(new\\s+)?(messages?|mensajes?|conversations?|chats?)\\b|^(messages|mensajes)$");
+
     /** The newest message time handled per conversation, so older ones in an update are skipped. */
     private static final java.util.HashMap<String, Long> lastTime = new java.util.HashMap<>();
 
@@ -143,7 +147,18 @@ public class MurmurNotifications extends NotificationListenerService {
         CharSequence t = lines != null && lines.length > 0 ? lines[lines.length - 1] : null;
         if (t == null) t = x.getCharSequence(Notification.EXTRA_BIG_TEXT);
         if (t == null) t = x.getCharSequence(Notification.EXTRA_TEXT);
-        if (t != null && !t.toString().trim().isEmpty()) out.add(new In(chat, t.toString().trim(), chat, 0));
+        if (t != null && !t.toString().trim().isEmpty()) {
+            String line = t.toString().trim();
+            String from = chat;
+            // A summary like "2 new messages" with lines "Elizabeth: ¿Vienes?": the name is the chat.
+            java.util.regex.Matcher m = SUMMARY_LINE.matcher(line);
+            if (m.matches() && (chat.isEmpty() || COUNT_TITLE.matcher(chat).find())) {
+                from = m.group(1).trim();
+                line = m.group(2).trim();
+                chat = from;
+            }
+            out.add(new In(from, line, chat, 0));
+        }
         return out;
     }
 
@@ -219,6 +234,7 @@ public class MurmurNotifications extends NotificationListenerService {
             // His own message (what Murmur just sent in their language) shows up in some chat notifications too.
             if (!test && Translate.wasSent(this, text)) {
                 note(this, app + ": skipped your own message");
+                diag(this, Prefs.DIAG_REPLY, app + " · " + in.chat + ": skipped, it matches a message you just sent");
                 continue;
             }
             if (!claim(pkg, text)) continue;
@@ -226,7 +242,7 @@ public class MurmurNotifications extends NotificationListenerService {
                 note(this, "no API key, so nothing was translated");
                 return;
             }
-            ChatLog.Chat ch = ChatLog.get(this, ChatLog.key(pkg, in.chat));
+            ChatLog.Chat ch = ChatLog.find(this, pkg, in.chat);
             if (ch != null && ch.off) {
                 note(this, app + ": Live Translate is off for " + ch.title());
                 continue;
@@ -253,15 +269,25 @@ public class MurmurNotifications extends NotificationListenerService {
                        boolean onScreen) {
         try {
             String out = AiClient.toMine(base, key, model, text, mine);
-            if (out.isEmpty()) {
-                note(ctx, app + ": already in " + mine + ", left as is");
-                return;
+            // The translator sometimes leaves a short or mixed Spanish reply as is ("Sí, mañana",
+            // "ok amor"). When the text plainly isn't in his language, ask again with no way out.
+            if ((out.isEmpty() || Translate.sameText(out, text)) && Translate.looksForeign(text, mine)) {
+                out = AiClient.toMineForced(base, key, model, text, mine);
             }
+            boolean asIs = out.isEmpty() || Translate.sameText(out, text);
+            String who = from == null || from.isEmpty() ? (chatName == null || chatName.isEmpty() ? "someone" : chatName) : from;
+            // Already in his language: it still goes in the chat's thread, so the bar shows every reply.
+            if (asIs) out = text;
             Translate.saveIncoming(ctx, from, out, app);
             ChatLog.Chat ch = ChatLog.add(ctx, pkg, app, chatName, from, text, out, false);
+            diag(ctx, Prefs.DIAG_REPLY, app + " · " + who + ": " + (asIs ? "already in " + mine + ", shown as is" : "translated to " + mine));
             if (onScreen) {
                 MurmurChatReader.bubble(ch.key);
-                note(ctx, app + ": translated a new message in the open chat");
+                note(ctx, app + (asIs ? ": a new message already in " + mine : ": translated a new message in the open chat"));
+                return;
+            }
+            if (asIs) {
+                note(ctx, app + ": already in " + mine + ", left as is");
                 return;
             }
             boolean shown = post(ctx, ch, open);

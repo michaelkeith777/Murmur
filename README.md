@@ -27,6 +27,17 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.6
+
+- **Every reply shows in English.** When the translator left a short or mixed Spanish reply as it was ("Sí, mañana", "ok amor"), Murmur now asks again so it comes back in English. Replies already in English still show in the bar, so every message from the other person is there.
+- **The same person under two names is one chat.** A notification titled "Elizabeth ❤️" and the chat titled "Elizabeth" (or an unsaved number written two ways) now land in the same chat, so the reply shows in the bar. "Byron" and "Byron's Mom" stay apart.
+- **His messages and theirs, in any app.** Murmur tells them apart by which side of the chat they're on, in WhatsApp, Messenger, Google Messages and Samsung Messages, so the other person's reply is never taken for his.
+- **Summary notifications** like "2 new messages" with "Elizabeth: ¿Vienes?" are filed under Elizabeth.
+- **Last reply** on the Live Translate screen says what happened to the newest reply: translated, already in English, or why it was skipped.
+- **👤 My info**: a new button next to 📋 holds your address, email and phone numbers. Type or say one in any box, tap 👤 and "Save what's in the box"; after that, one tap fills it in anywhere. ✎ fixes one, ✕ deletes one. It stays on the phone.
+- **.com key** on the bottom row, next to the period.
+- **📋 Paste chip**: for three minutes after you copy something, a chip above the keys pastes it with one tap. A verification code is pasted on its own, even from a longer message ("Your code is 482913" pastes 482913); hold the chip to paste the whole text.
+
 ## What's new in 1.9.5
 
 - **Each chat keeps its own messages.** The bar above the keys shows only the conversation of

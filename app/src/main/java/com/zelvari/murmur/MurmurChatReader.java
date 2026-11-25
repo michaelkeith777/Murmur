@@ -96,7 +96,7 @@ public class MurmurChatReader extends AccessibilityService {
                 for (AccessibilityNodeInfo n : nodes) {
                     CharSequence t = n.getText();
                     if (t != null && t.toString().trim().length() > 0) {
-                        bubbles.add(new Bubble(t.toString().trim(), sentByHim(n, pkg)));
+                        bubbles.add(new Bubble(t.toString().trim(), sentByHim(n, pkg, screenW())));
                     }
                 }
             }
@@ -105,11 +105,7 @@ public class MurmurChatReader extends AccessibilityService {
         }
         // Only a chat screen (one with a box to type in) counts, not the list of chats.
         boolean chatScreen = !bubbles.isEmpty() || hasTypingBox(root, 0);
-        if (bubbles.isEmpty() && chatScreen) {
-            List<String> texts = new ArrayList<>();
-            collectFallback(root, texts, 0);
-            for (String t : texts) bubbles.add(new Bubble(t, false));
-        }
+        if (bubbles.isEmpty() && chatScreen) collectFallback(root, bubbles, 0);
         // Tells the keyboard which chat is open, so its strip shows that chat's thread.
         final String from = chatScreen ? steadyName(root, pkg) : "";
         if (!chatScreen) nameWin = "";
@@ -137,7 +133,13 @@ public class MurmurChatReader extends AccessibilityService {
         List<String> fresh = new ArrayList<>();
         for (int i : idx) {
             Bubble bb = bubbles.get(i);
-            if (!bb.mine && !Translate.wasSent(this, bb.text) && bb.text.length() <= 1500) fresh.add(bb.text);
+            if (bb.text.length() > 1500) continue;
+            if (bb.mine || Translate.wasSent(this, bb.text)) {
+                MurmurNotifications.diag(this, Prefs.DIAG_REPLY, label(pkg) + " · " + (from.isEmpty() ? "a chat" : from)
+                        + ": a new message on your side of the chat, so it was left as yours");
+                continue;
+            }
+            fresh.add(bb.text);
         }
         if (fresh.isEmpty()) return;
         // A burst of several replies at once: the last three are plenty.
@@ -148,7 +150,7 @@ public class MurmurChatReader extends AccessibilityService {
             MurmurNotifications.note(this, "no API key, so nothing was translated");
             return;
         }
-        ChatLog.Chat ch = ChatLog.get(this, key);
+        ChatLog.Chat ch = ChatLog.find(this, pkg, from);
         if (ch != null && ch.off) {
             MurmurNotifications.note(this, "Live Translate is off for " + ch.title());
             return;
@@ -168,27 +170,75 @@ public class MurmurChatReader extends AccessibilityService {
         }
     }
 
-    /**
-     * WhatsApp marks his own messages with delivery ticks; theirs have none. Looks for the ticks
-     * in the bubble's row, without leaving the row.
-     */
-    private static boolean sentByHim(AccessibilityNodeInfo n, String pkg) {
-        if (!pkg.startsWith("com.whatsapp")) return false;
+    private int screenW() {
         try {
+            return getResources().getDisplayMetrics().widthPixels;
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Whether a bubble is one he sent. Every chat app puts his messages on the right and theirs on
+     * the left, so that decides it in any app. 1.9.5 looked only for WhatsApp's delivery ticks
+     * near the bubble, and when its search took in a wider part of the screen, a reply from the
+     * other person could be taken for his and never translated. The ticks still decide a bubble
+     * as wide as the chat, where the side can't tell.
+     */
+    static boolean sentByHim(AccessibilityNodeInfo n, String pkg, int screenW) {
+        try {
+            Boolean side = sideOf(n, screenW);
+            if (side != null) return side;
+            if (!pkg.startsWith("com.whatsapp")) return false;
             AccessibilityNodeInfo row = n;
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < 8; i++) {
                 AccessibilityNodeInfo p = row.getParent();
-                if (p == null) break;
+                if (p == null) return false;
                 CharSequence cls = p.getClassName();
-                if (cls != null && (cls.toString().contains("RecyclerView") || cls.toString().contains("ListView"))) break;
+                if (cls != null && (cls.toString().contains("RecyclerView") || cls.toString().contains("ListView"))) {
+                    // Only the bubble's own row, the one right under the chat's list.
+                    List<AccessibilityNodeInfo> ticks = row.findAccessibilityNodeInfosByViewId(pkg + ":id/status");
+                    return ticks != null && !ticks.isEmpty();
+                }
                 row = p;
             }
-            if (row == n) return false;
-            List<AccessibilityNodeInfo> ticks = row.findAccessibilityNodeInfosByViewId(pkg + ":id/status");
-            return ticks != null && !ticks.isEmpty();
+            return false;
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /** True for a bubble on the right of the chat, false on the left, null when it can't tell. */
+    static Boolean sideOf(AccessibilityNodeInfo n, int screenW) {
+        android.graphics.Rect r = new android.graphics.Rect();
+        n.getBoundsInScreen(r);
+        int left = 0, right = screenW;
+        AccessibilityNodeInfo p = n.getParent();
+        for (int i = 0; p != null && i < 12; i++) {
+            CharSequence cls = p.getClassName();
+            if (cls != null && (cls.toString().contains("RecyclerView") || cls.toString().contains("ListView"))) {
+                android.graphics.Rect lr = new android.graphics.Rect();
+                p.getBoundsInScreen(lr);
+                if (lr.width() > 0) {
+                    left = lr.left;
+                    right = lr.right;
+                }
+                break;
+            }
+            p = p.getParent();
+        }
+        return side(r.left, r.right, left, right);
+    }
+
+    /** The side rule on its own, for the tests: a clear gap on one side only. */
+    static Boolean side(int bubbleLeft, int bubbleRight, int listLeft, int listRight) {
+        int w = listRight - listLeft;
+        if (w <= 0 || bubbleRight <= bubbleLeft) return null;
+        int gapL = bubbleLeft - listLeft, gapR = listRight - bubbleRight;
+        int margin = w / 10;
+        if (gapL - gapR > margin) return Boolean.TRUE;
+        if (gapR - gapL > margin) return Boolean.FALSE;
+        return null;
     }
 
     private static final java.util.regex.Pattern NOT_A_MESSAGE = java.util.regex.Pattern.compile(
@@ -199,13 +249,15 @@ public class MurmurChatReader extends AccessibilityService {
      * When an app update renames its bubble views, fall back to the text inside the chat's
      * scrolling list, skipping times, dates, buttons and the box he types in.
      */
-    private void collectFallback(AccessibilityNodeInfo n, List<String> out, int depth) {
+    private void collectFallback(AccessibilityNodeInfo n, List<Bubble> out, int depth) {
         if (n == null || depth > 40) return;
         String cls = n.getClassName() == null ? "" : n.getClassName().toString();
         if (n.isEditable() || cls.endsWith("EditText") || cls.endsWith("Button")) return;
         boolean inList = depth > 0 && (cls.contains("RecyclerView") || cls.contains("ListView"));
         if (inList) {
-            collectTexts(n, out, 0);
+            android.graphics.Rect lr = new android.graphics.Rect();
+            n.getBoundsInScreen(lr);
+            collectTexts(n, out, 0, lr);
             return;
         }
         for (int i = 0; i < n.getChildCount(); i++) {
@@ -216,18 +268,23 @@ public class MurmurChatReader extends AccessibilityService {
         }
     }
 
-    private void collectTexts(AccessibilityNodeInfo n, List<String> out, int depth) {
+    private void collectTexts(AccessibilityNodeInfo n, List<Bubble> out, int depth, android.graphics.Rect list) {
         if (n == null || depth > 30) return;
         String cls = n.getClassName() == null ? "" : n.getClassName().toString();
         if (n.isEditable() || cls.endsWith("Button") || cls.endsWith("ImageView")) return;
         CharSequence t = n.getText();
         if (t != null && cls.endsWith("TextView")) {
             String s = t.toString().trim();
-            if (s.length() > 1 && !NOT_A_MESSAGE.matcher(s).matches()) out.add(s);
+            if (s.length() > 1 && !NOT_A_MESSAGE.matcher(s).matches()) {
+                android.graphics.Rect r = new android.graphics.Rect();
+                n.getBoundsInScreen(r);
+                Boolean mine = side(r.left, r.right, list.left, list.right);
+                out.add(new Bubble(s, Boolean.TRUE.equals(mine)));
+            }
         }
         for (int i = 0; i < n.getChildCount(); i++) {
             try {
-                collectTexts(n.getChild(i), out, depth + 1);
+                collectTexts(n.getChild(i), out, depth + 1, list);
             } catch (RuntimeException ignored) {
             }
         }

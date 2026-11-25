@@ -67,6 +67,44 @@ final class Translate {
         return false;
     }
 
+    private static final java.util.regex.Pattern SPANISH_WORD = java.util.regex.Pattern.compile(
+            "(?iu)(^|[^\\p{L}])(que|qué|como|cómo|estás|estas|está|esta|hola|gracias|por|para|pero|porque|"
+            + "bueno|bien|mañana|manana|hoy|ahora|tengo|tienes|quiero|vamos|voy|eres|soy|muy|mucho|nada|"
+            + "también|tambien|donde|dónde|cuando|cuándo|sí|si|claro|amor|mi|tu|te|yo|el|la|los|las|un|una|"
+            + "es|de|en|con|del|al|lo|le|me|se|no sé|vale|oye|jaja|jeje|ya|aquí|aqui|allí|nos|hacer|hace|"
+            + "puedo|puedes|ver|vez|día|dia|noche|casa|trabajo|ella|él|ellos|usted|ustedes|algo|todo)(?=$|[^\\p{L}])");
+
+    /**
+     * True when a message plainly isn't in English: Spanish accents and marks, or Spanish words
+     * that English doesn't have. Only used when his language is English, to catch a reply the
+     * translator left as is.
+     */
+    static boolean looksForeign(String text, String mine) {
+        if (text == null || mine == null || !mine.toLowerCase(java.util.Locale.ROOT).startsWith("english")) return false;
+        String t = text.trim();
+        if (t.isEmpty()) return false;
+        int letters = 0, odd = 0;
+        for (int i = 0; i < t.length(); i++) {
+            char ch = t.charAt(i);
+            if (Character.isLetter(ch)) {
+                letters++;
+                if (ch > 0x7F) odd++;
+            }
+            if (ch == '¿' || ch == '¡') return true;
+        }
+        if (letters == 0) return false;
+        if (odd > 0) return true;
+        java.util.regex.Matcher m = SPANISH_WORD.matcher(t);
+        int hits = 0;
+        while (m.find()) hits++;
+        int words = t.split("\\s+").length;
+        return hits >= 2 || (hits == 1 && words <= 3 && !t.matches("(?i).*\\b(i|you|the|is|are|and|to|ok|okay|lol)\\b.*"));
+    }
+
+    static boolean sameText(String a, String b) {
+        return norm(a).replaceAll("[^\\p{L}\\p{N} ]", "").equals(norm(b).replaceAll("[^\\p{L}\\p{N} ]", ""));
+    }
+
     private static String norm(String t) {
         return t == null ? "" : t.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
     }

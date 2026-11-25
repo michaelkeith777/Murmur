@@ -62,7 +62,7 @@ public class LiveTranslateActivity extends Activity {
         if (Prefs.IN_AT.equals(key) || Prefs.TEXTING.equals(key) || Prefs.DIAG_LAST.equals(key)
                 || Prefs.SEND_LAST.equals(key)
                 || Prefs.DIAG_SEEN.equals(key) || Prefs.DIAG_READING.equals(key)
-                || Prefs.DIAG_KEYBOARD.equals(key) || Prefs.DIAG_SENT.equals(key)) {
+                || Prefs.DIAG_KEYBOARD.equals(key) || Prefs.DIAG_SENT.equals(key) || Prefs.DIAG_REPLY.equals(key)) {
             runOnUiThread(this::render);
         }
     };
@@ -309,6 +309,8 @@ public class LiveTranslateActivity extends Activity {
         if (!kb.isEmpty()) box.addView(line("Keyboard: " + kb, dim, 12));
         String sent = Prefs.get(this, Prefs.DIAG_SENT, "");
         if (!sent.isEmpty()) box.addView(line("Your last message: " + sent, dim, 12));
+        String reply = Prefs.get(this, Prefs.DIAG_REPLY, "");
+        if (!reply.isEmpty()) box.addView(line("Last reply: " + reply, dim, 12));
         String last = Prefs.get(this, Prefs.DIAG_LAST, "");
         if (!last.isEmpty()) box.addView(line("Last: " + last, dim, 12));
         if (!readerRunning || !notes) {
