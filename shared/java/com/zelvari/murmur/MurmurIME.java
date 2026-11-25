@@ -1454,7 +1454,6 @@ public class MurmurIME extends InputMethodService {
     private void pickChat() {
         boolean on = Translate.texting(this) && !getPackageName().equals(editorPkg);
         chat = on ? ChatLog.forEditor(this, editorPkg) : null;
-        feed = on ? ChatLog.feed(this, editorPkg) : null;
         // Sending doesn't depend on which chat Murmur thinks is open any more.
         Translate.chatLang = "";
         Translate.chatOff = false;
@@ -1468,8 +1467,16 @@ public class MurmurIME extends InputMethodService {
         }
     }
 
-    /** Every recent message in the app he's typing in, whichever chat it's from. */
-    private ChatLog.Chat feed;
+    /**
+     * The chat whose messages the bar shows: the one open on screen, and only when Murmur is sure
+     * which one it is. 1.9.4 showed every chat in the app together, so two people's messages
+     * mixed; when it can't tell, it now shows none rather than someone else's.
+     */
+    ChatLog.Chat stripChat() {
+        if (!chatKnown()) return null;
+        ChatLog.Chat c = ChatLog.get(this, chat.key);
+        return c == null || c.off ? null : c;
+    }
 
     /**
      * Live Translate's strip above the top bar. It shows only while translating. In texting mode
@@ -1485,7 +1492,7 @@ public class MurmurIME extends InputMethodService {
             incomingBar.setVisibility(View.GONE);
             return;
         }
-        final ChatLog.Chat ch = texting ? feed : null;
+        final ChatLog.Chat ch = texting ? stripChat() : null;
         boolean hasThread = ch != null && !ch.msgs.isEmpty()
                 && !(ch.key.equals(hiddenKey) && ch.at == hiddenAt);
         int bg;
@@ -1507,7 +1514,8 @@ public class MurmurIME extends InputMethodService {
         } else if (texting) {
             android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(state);
             sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sb.length(), 0);
-            sb.append(" · their replies show here in ").append(Translate.mine(this))
+            sb.append(chatKnown() ? " · " + chat.title() + "'s replies show here in " + Translate.mine(this)
+                    : " · open a chat to see its replies here in " + Translate.mine(this))
                     .append(setupMissing() ? " · tap to finish setup" : "");
             text = sb;
             bg = sending ? 0xFF6D28D9 : 0xFF334155;
@@ -1551,14 +1559,14 @@ public class MurmurIME extends InputMethodService {
         };
         incomingBar.setOnClickListener(tap);
         incomingText.setOnClickListener(tap);
-        if (incomingOpen != null) incomingOpen.setOnClickListener(v -> openLive(ch == null ? null : ch.newestKey));
+        if (incomingOpen != null) incomingOpen.setOnClickListener(v -> openLive(ch == null ? null : ch.key));
         if (incomingClose != null) incomingClose.setOnClickListener(v -> {
             if (fThread && incomingExpanded) {
                 incomingExpanded = false;
             } else if (fThread) {
                 hiddenKey = ch.key;
                 hiddenAt = ch.at;
-                render("Hidden until the next message · ↗ shows every chat");
+                render("Hidden until their next message · ↗ shows the whole chat");
             } else if (Translate.texting(this)) {
                 Translate.setTexting(this, false);
                 pickChat();

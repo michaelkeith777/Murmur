@@ -78,6 +78,18 @@ public class MurmurNotifications extends NotificationListenerService {
         }
     }
 
+    private static final java.util.regex.Pattern COUNT = java.util.regex.Pattern.compile(
+            "\\s*\\(\\d+\\s+(new\\s+)?(messages?|mensajes?(\\s+nuevos?)?)\\)\\s*$", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * The chat's name as its title bar shows it, so a reply files under the same chat the screen
+     * reader sees: some apps add "(2 messages)" to the notification's title.
+     */
+    static String chatTitle(CharSequence title) {
+        if (title == null) return "";
+        return COUNT.matcher(title.toString()).replaceAll("").trim();
+    }
+
     /** The newest message time handled per conversation, so older ones in an update are skipped. */
     private static final java.util.HashMap<String, Long> lastTime = new java.util.HashMap<>();
 
@@ -91,7 +103,7 @@ public class MurmurNotifications extends NotificationListenerService {
         java.util.List<In> out = new java.util.ArrayList<>();
         CharSequence convo = x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
         CharSequence title = convo != null ? convo : x.getCharSequence(Notification.EXTRA_TITLE);
-        String chat = title == null ? "" : title.toString();
+        String chat = chatTitle(title);
         Parcelable[] messages = x.getParcelableArray(Notification.EXTRA_MESSAGES);
         boolean selfKnown = x.containsKey("android.messagingUser") || x.containsKey(Notification.EXTRA_SELF_DISPLAY_NAME);
         CharSequence selfName = x.getCharSequence(Notification.EXTRA_SELF_DISPLAY_NAME);

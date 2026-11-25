@@ -27,6 +27,14 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.5
+
+- **Each chat keeps its own messages.** The bar above the keys shows only the conversation of
+  the chat you have open. 1.9.4 mixed every chat in the app together. When Murmur can't tell
+  which chat is open (the chat list, or a chat it can't read yet), the bar shows no messages
+  rather than someone else's.
+- Sending is unchanged from 1.9.4: one ⇄ switch with the purple SENDING IN SPANISH bar.
+
 ## What's new in 1.9.4
 
 - **One switch for Spanish.** ⇄ switches what you send between English and Spanish, and it

@@ -85,6 +85,8 @@ public class MurmurChatReader extends AccessibilityService {
             return;
         }
         if (root == null || root.getPackageName() == null || !pkg.equals(root.getPackageName().toString())) return;
+        // Murmur's own keyboard or the status bar on top isn't another chat: keep the one open.
+        if (pkg.equals(getPackageName()) || pkg.equals("com.android.systemui")) return;
         List<Bubble> bubbles = new ArrayList<>();
         try {
             for (String id : BUBBLE_IDS) {
