@@ -17,15 +17,13 @@ final class Translate {
 
     /** The language dictation is translated into right now, or "" when translate is off. */
     static String target(Context c) {
-        // Live Translate sends in their language only in the chats he turned it on for.
-        if (texting(c)) return chatSend ? theirs(c) : "";
+        if (texting(c)) return chatOff ? "" : theirs(c);
         return Prefs.flag(c, Prefs.TRANSLATE_ON, false) ? last(c) : "";
     }
 
     /** The chat he's typing in: its own language ("" for the default) and whether it's switched off. */
     static volatile String chatLang = "";
     static volatile boolean chatOff;
-    static volatile boolean chatSend;
 
     /** Texting mode: send in their language, read their replies in yours. */
     static boolean texting(Context c) {

@@ -36,13 +36,11 @@ final class ChatLog {
         /** The other person's language for this chat, or "" for the default. */
         String lang = "";
         boolean off;
-        /** He turned on sending in their language for this chat (off for every new chat). */
-        boolean send;
         long at;
         final List<Msg> msgs = new ArrayList<>();
 
         String title() {
-            return name.isEmpty() ? (app.isEmpty() ? "this app" : app) : name;
+            return name.isEmpty() ? (app.isEmpty() ? "Chat" : app) : name;
         }
     }
 
@@ -65,23 +63,25 @@ final class ChatLog {
         Prefs.sp(c).edit().putLong(Prefs.CHAT_OPEN_AT, System.currentTimeMillis()).apply();
     }
 
-    /**
-     * The chat he's typing in: the open chat when the reader knows it. When it can't tell which
-     * chat (or the app isn't one it reads), the app as a whole, so a switch turned on for one
-     * person never carries over to another.
-     */
+    /** The chat he's typing in: the open chat if the reader knows it, else the latest in that app. */
     static synchronized Chat forEditor(Context c, String editorPkg) {
         if (editorPkg == null || editorPkg.isEmpty()) return null;
         List<Chat> all = load(c);
-        String name = editorPkg.equals(openPkg) ? openName : "";
-        String k = key(editorPkg, name);
-        for (Chat ch : all) if (ch.key.equals(k)) return ch;
-        // A chat with no history yet: a placeholder so its language and switches still work.
-        Chat ch = new Chat();
-        ch.key = k;
-        ch.pkg = editorPkg;
-        ch.name = name;
-        return ch;
+        if (editorPkg.equals(openPkg)) {
+            String k = key(openPkg, openName);
+            for (Chat ch : all) if (ch.key.equals(k)) return ch;
+            if (!openName.isEmpty()) {
+                // A chat with no history yet: a placeholder so its language and switch still work.
+                Chat ch = new Chat();
+                ch.key = k;
+                ch.pkg = openPkg;
+                ch.name = openName;
+                return ch;
+            }
+        }
+        long now = System.currentTimeMillis();
+        for (Chat ch : all) if (ch.pkg.equals(editorPkg) && now - ch.at < 3 * 3600_000L) return ch;
+        return null;
     }
 
     static synchronized List<Chat> all(Context c) {
@@ -123,12 +123,8 @@ final class ChatLog {
         return ch;
     }
 
-    static void settings(Context c, Chat placeholder, String lang, Boolean off) {
-        settings(c, placeholder, lang, off, null);
-    }
-
-    /** Saves a chat's language or switches, making the chat if it's new. */
-    static synchronized void settings(Context c, Chat placeholder, String lang, Boolean off, Boolean send) {
+    /** Saves a chat's language or switch, making the chat if it's new. */
+    static synchronized void settings(Context c, Chat placeholder, String lang, Boolean off) {
         List<Chat> all = load(c);
         Chat ch = null;
         for (Chat x : all) if (x.key.equals(placeholder.key)) ch = x;
@@ -139,10 +135,8 @@ final class ChatLog {
         }
         if (lang != null) ch.lang = lang;
         if (off != null) ch.off = off;
-        if (send != null) ch.send = send;
         placeholder.lang = ch.lang;
         placeholder.off = ch.off;
-        placeholder.send = ch.send;
         save(c);
     }
 
@@ -182,7 +176,6 @@ final class ChatLog {
                 ch.app = o.optString("app");
                 ch.lang = o.optString("lang");
                 ch.off = o.optBoolean("off");
-                ch.send = o.optBoolean("send");
                 ch.at = o.optLong("at");
                 JSONArray ms = o.optJSONArray("msgs");
                 if (ms != null) for (int j = 0; j < ms.length(); j++) {
@@ -209,7 +202,7 @@ final class ChatLog {
             for (Chat ch : chats) {
                 JSONObject o = new JSONObject();
                 o.put("key", ch.key).put("pkg", ch.pkg).put("name", ch.name).put("app", ch.app)
-                        .put("lang", ch.lang).put("off", ch.off).put("send", ch.send).put("at", ch.at);
+                        .put("lang", ch.lang).put("off", ch.off).put("at", ch.at);
                 JSONArray ms = new JSONArray();
                 for (Msg m : ch.msgs) {
                     ms.put(new JSONObject().put("from", m.from).put("orig", m.orig).put("text", m.text)

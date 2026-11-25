@@ -978,15 +978,7 @@ public class MurmurIME extends InputMethodService {
                 closePanel();
                 if (recording || busy) return;
                 if (Translate.texting(this)) {
-                    // ⇄ belongs to this chat: on sends it in their language, off sends as typed.
-                    if (chat != null && !chat.send) {
-                        setChatSend(true);
-                        if (!fieldEmpty()) translateTyped();
-                    } else if (chat != null && fieldEmpty()) {
-                        setChatSend(false);
-                    } else {
-                        translateTyped();
-                    }
+                    translateTyped();
                 } else if (!Translate.picked(this)) {
                     showLanguagePicker();
                 } else {
@@ -1275,15 +1267,10 @@ public class MurmurIME extends InputMethodService {
     private void paintTranslate() {
         if (translateBtn == null) return;
         String to = Translate.target(this);
-        if (Translate.texting(this) && !to.isEmpty()) {
+        if (Translate.texting(this)) {
             translateBtn.setText("⇄" + Translate.code(to));
             translateBtn.setTextColor(0xFFFFFFFF);
             translateBtn.setBackground(pill(0xFF7C3AED, true));
-        } else if (Translate.texting(this)) {
-            // This chat sends as typed: an outline, so it's plain that ⇄ is off here.
-            translateBtn.setText("⇄" + Translate.code(Translate.mine(this)));
-            translateBtn.setTextColor(tc[Theme.TEXT]);
-            translateBtn.setBackground(pill(0xFF7C3AED, false));
         } else if (to.isEmpty()) {
             translateBtn.setText("文A");
             translateBtn.setTextColor(tc[Theme.TEXT]);
@@ -1327,16 +1314,14 @@ public class MurmurIME extends InputMethodService {
                 }
                 return;
             }
-            render(!texting ? "Live Translate on · tap ⇄ in a chat to send that chat in "
+            render(!texting ? "Live Translate: write in " + Translate.mine(this) + ", it sends in "
                     + Translate.theirs(this) + ". Replies show here in " + Translate.mine(this)
                     : "Live Translate off");
         }));
         if (conversationIntent() != null) {
             toneList.addView(languageChip("💬 Conversation", 0xFF7C3AED, this::openConversation));
         }
-        if (texting && chat != null && chat.send) toneList.addView(languageChip("Off for " + chat.title(),
-                0xFF6B7280, () -> setChatSend(false)));
-        else if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
+        if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
             Translate.setTexting(this, false);
             Translate.setOn(this, false);
             paintTranslate();
@@ -1347,10 +1332,10 @@ public class MurmurIME extends InputMethodService {
             toneList.addView(languageChip(l[1] + "  " + name, name.equals(current) ? 0xFF0EA5E9 : 0xFF334155, () -> {
                 if (Translate.texting(this) && chat != null) {
                     // In a chat, the language belongs to that chat; other chats keep theirs.
-                    ChatLog.settings(this, chat, name, false, true);
+                    ChatLog.settings(this, chat, name, false);
                     pickChat();
                     paintTranslate();
-                    render("Sending to " + chat.title() + " in " + name + " · only in this chat");
+                    render("Live Translate: " + chat.title() + " gets " + name);
                     return;
                 }
                 Translate.set(this, name, true);
@@ -1373,28 +1358,14 @@ public class MurmurIME extends InputMethodService {
         tonePicker.post(() -> tonePicker.scrollTo(0, 0));
     }
 
-    private boolean fieldEmpty() {
+    /** Texting mode: the ⇄ button turns what's typed (or selected) into their language. */
+    private void translateTyped() {
         InputConnection ic = getCurrentInputConnection();
         CharSequence before = ic == null ? null : ic.getTextBeforeCursor(1, 0);
         CharSequence sel = ic == null ? null : ic.getSelectedText(0);
         CharSequence after = ic == null ? null : ic.getTextAfterCursor(1, 0);
-        return (before == null || before.length() == 0) && (after == null || after.length() == 0)
+        boolean empty = (before == null || before.length() == 0) && (after == null || after.length() == 0)
                 && (sel == null || sel.length() == 0) && word.length() == 0;
-    }
-
-    /** Turns sending in their language on or off for the chat he's in, and only that chat. */
-    private void setChatSend(boolean on) {
-        if (chat == null) return;
-        ChatLog.settings(this, chat, null, null, on);
-        pickChat();
-        paintTranslate();
-        render(on ? "Sending to " + chat.title() + " in " + Translate.theirs(this) + " · only in this chat"
-                : chat.title() + ": sending in " + Translate.mine(this) + " · tap ⇄ to translate again");
-    }
-
-    /** Texting mode: the ⇄ button turns what's typed (or selected) into their language. */
-    private void translateTyped() {
-        boolean empty = fieldEmpty();
         String to = Translate.theirs(this);
         if (empty) {
             render("Live Translate: " + to + " · talk, or type in " + Translate.mine(this)
@@ -1437,8 +1408,6 @@ public class MurmurIME extends InputMethodService {
         chat = Translate.texting(this) && !getPackageName().equals(editorPkg) ? ChatLog.forEditor(this, editorPkg) : null;
         Translate.chatLang = chat == null ? "" : chat.lang;
         Translate.chatOff = chat != null && chat.off;
-        Translate.chatSend = chat != null && chat.send;
-        if (chat != null && chat.app.isEmpty()) chat.app = appLabel(editorPkg);
     }
 
     /**
@@ -1461,27 +1430,18 @@ public class MurmurIME extends InputMethodService {
         int bg;
         CharSequence text;
         String closeLabel;
-        // Which way this chat sends, so it's plain before he types.
-        String state = ch == null ? "" : ch.send
-                ? "⇄ To " + ch.title() + " in " + to + " · only this chat"
-                : "⇄ To " + ch.title() + " in " + Translate.mine(this) + " · tap ⇄ to send in " + Translate.theirsDefault(this);
-        if (ch != null && ch.send && !ch.lang.isEmpty()) state = "⇄ To " + ch.title() + " in " + ch.lang + " · only this chat";
         if (hasThread) {
-            android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(state);
-            sb.setSpan(new android.text.style.ForegroundColorSpan(0xFFDDD6FE), 0, sb.length(), 0);
-            sb.setSpan(new android.text.style.RelativeSizeSpan(0.85f), 0, sb.length(), 0);
-            sb.append('\n').append(thread(ch, incomingExpanded ? 20 : 2));
-            text = sb;
-            bg = ch.send ? 0xFF4C1D95 : 0xFF334155;
+            text = thread(ch, incomingExpanded ? 20 : 2);
+            bg = 0xFF4C1D95;
             closeLabel = incomingExpanded ? "▴" : "✕";
         } else if (ch != null && ch.off) {
             text = "⇄ Live Translate is off for " + ch.title() + " · tap to turn it on";
             bg = 0xFF374151;
             closeLabel = "Off";
         } else if (texting) {
-            text = (state.isEmpty() ? "⇄ Live Translate" : state) + " · their replies show here in "
+            text = "⇄ Live Translate: you write in " + to + ", their replies show here in "
                     + Translate.mine(this) + (setupMissing() ? " · tap to finish setup" : "");
-            bg = ch != null && ch.send ? 0xFF2E1065 : 0xFF334155;
+            bg = 0xFF2E1065;
             closeLabel = "Off";
         } else {
             text = "→ Translating what you say into " + to;
@@ -1489,7 +1449,7 @@ public class MurmurIME extends InputMethodService {
             closeLabel = "Off";
         }
         incomingText.setText(text);
-        incomingText.setMaxLines(hasThread && incomingExpanded ? 200 : 4);
+        incomingText.setMaxLines(hasThread && incomingExpanded ? 200 : 3);
         incomingText.setEllipsize(hasThread && incomingExpanded ? null : android.text.TextUtils.TruncateAt.END);
         if (incomingScroll != null) {
             ViewGroup.LayoutParams lp = incomingScroll.getLayoutParams();
@@ -1654,14 +1614,6 @@ public class MurmurIME extends InputMethodService {
 
     /** Rewrites the selection, or the whole message when nothing is selected. */
     private boolean translatingTyped;
-
-    private String appLabel(String pkg) {
-        try {
-            return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString();
-        } catch (Exception e) {
-            return "";
-        }
-    }
 
     /** Adds what he just sent to the open chat's Live Translate thread, with what he said. */
     private void logMine(String said, String sent) {

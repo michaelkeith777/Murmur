@@ -27,18 +27,10 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
-## What's new in 1.9
+## What's new in 1.8.3
 
-- **Translate is per chat.** Tap ⇄ in a chat and only that chat sends in their language. Every
-  other chat sends what you type, and new chats start off. Murmur switches by itself as you move
-  between chats. Picking a language on the keyboard while in a chat turns it on for that chat
-  only.
-- **The keyboard shows which way this chat sends.** A filled ⇄ES means this chat goes out in
-  Spanish, an outlined ⇄EN means as typed, and the strip says "To Byron in Spanish · only this
-  chat". Tap ⇄ with nothing typed to turn it off again.
-- **Live Translate has the switch for each chat** ("Send my messages in Spanish"), apart from
-  "Show their replies in English".
-- Samsung Messages and Google Messages chats are told apart by the name at the top of the chat.
+- **Back to how 1.8.2 worked.** 1.9's per-chat translate is undone: ⇄ sends in Spanish in every
+  chat again while Live Translate is on. It installs over 1.9 and keeps your settings and chats.
 
 ## What's new in 1.8.2
 
