@@ -535,6 +535,14 @@ public class MurmurIME extends InputMethodService {
                     return;
                 }
                 boolean inserted = insert(fText);
+                if (inserted && Translate.texting(this)) {
+                    String when = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(new java.util.Date());
+                    Prefs.sp(this).edit().putString(Prefs.DIAG_SENT, when + " · " + (translated
+                            ? (fText != null && fSaid != null && fText.trim().equalsIgnoreCase(fSaid.trim())
+                                ? "asked for " + translateTo + " but got the same words back" : "typed in " + translateTo)
+                            : "typed as you said it, because this chat was set to send in "
+                            + Translate.mine(this))).apply();
+                }
                 // Your fixes to a translation aren't spelling lessons for your own language.
                 if (inserted && translated) {
                     learnText = null;
@@ -979,18 +987,7 @@ public class MurmurIME extends InputMethodService {
                 closePanel();
                 if (recording || busy) return;
                 if (Translate.texting(this)) {
-                    // ⇄ belongs to this chat: on sends it in their language, off sends as typed.
-                    if (chat != null && !chat.send) {
-                        setChatSend(true);
-                        if (!fieldEmpty()) translateTyped();
-                    } else if (chat != null && fieldEmpty()) {
-                        // 1.9 turned sending off here, so a second tap quietly sent the next
-                        // message in English. Off is now on the long-press menu and in Live Translate.
-                        render("Sending to " + chat.title() + " in " + Translate.theirs(this)
-                                + " · talk, or type and tap ⇄. Hold ⇄ to turn it off");
-                    } else {
-                        translateTyped();
-                    }
+                    onTextingTranslateTap();
                 } else if (!Translate.picked(this)) {
                     showLanguagePicker();
                 } else {
@@ -1338,7 +1335,7 @@ public class MurmurIME extends InputMethodService {
         if (conversationIntent() != null) {
             toneList.addView(languageChip("💬 Conversation", 0xFF7C3AED, this::openConversation));
         }
-        if (texting && chat != null && chat.send) toneList.addView(languageChip("Off for " + chat.title(),
+        if (texting && chat != null && Translate.chatSend) toneList.addView(languageChip(chatKnown() ? "Off for " + chat.title() : "Send as I say it",
                 0xFF6B7280, () -> setChatSend(false)));
         else if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
             Translate.setTexting(this, false);
@@ -1352,6 +1349,7 @@ public class MurmurIME extends InputMethodService {
                 if (Translate.texting(this) && chat != null) {
                     // In a chat, the language belongs to that chat; other chats keep theirs.
                     ChatLog.settings(this, chat, name, false, true);
+                    Prefs.sp(this).edit().putBoolean(Prefs.SEND_LAST, true).apply();
                     pickChat();
                     paintTranslate();
                     render("Sending to " + chat.title() + " in " + name + " · only in this chat");
@@ -1386,14 +1384,49 @@ public class MurmurIME extends InputMethodService {
                 && (sel == null || sel.length() == 0) && word.length() == 0;
     }
 
-    /** Turns sending in their language on or off for the chat he's in, and only that chat. */
+    /**
+     * Texting mode's ⇄. When this chat isn't sending in their language, it turns that on (and
+     * translates anything already typed). When it is, it translates what's typed, and in an empty
+     * box just says so: 1.9 turned sending off there, so a second tap sent the next one in English.
+     */
+    void onTextingTranslateTap() {
+        if (chat == null) {
+            translateTyped();
+        } else if (!Translate.chatSend) {
+            setChatSend(true);
+            if (!fieldEmpty()) translateTyped();
+        } else if (fieldEmpty()) {
+            render(sendingLine() + " · talk, or type and tap ⇄. Hold ⇄ to turn it off");
+        } else {
+            translateTyped();
+        }
+    }
+
+    /** True when the open-chat reader is sure which chat he's typing in. */
+    private boolean chatKnown() {
+        return chat != null && ChatLog.namedOpen(chat.pkg, chat.name);
+    }
+
+    /** "Sending to Byron in Spanish", or without a name when Murmur can't tell which chat it is. */
+    private String sendingLine() {
+        String to = Translate.target(this);
+        String lang = to.isEmpty() ? Translate.mine(this) : to;
+        return chatKnown() ? "Sending to " + chat.title() + " in " + lang : "Sending in " + lang;
+    }
+
+    /**
+     * Turns sending in their language on or off. In a chat Murmur is sure of, that's for that chat
+     * only. It's also remembered as his last choice, which is what counts when Murmur can't tell
+     * which chat is open, so the language he picked never quietly falls back to English.
+     */
     private void setChatSend(boolean on) {
         if (chat == null) return;
-        ChatLog.settings(this, chat, null, null, on);
+        Prefs.sp(this).edit().putBoolean(Prefs.SEND_LAST, on).apply();
+        if (ChatLog.readsOpen(chat.pkg, chat.name)) ChatLog.settings(this, chat, null, null, on);
         pickChat();
         paintTranslate();
-        render(on ? "Sending to " + chat.title() + " in " + Translate.theirs(this) + " · only in this chat"
-                : chat.title() + ": sending in " + Translate.mine(this) + " · tap ⇄ to translate again");
+        render(on ? sendingLine() + (chatKnown() ? " · only in this chat" : "")
+                : sendingLine() + " · tap ⇄ to translate again");
     }
 
     /** Texting mode: the ⇄ button turns what's typed (or selected) into their language. */
@@ -1452,8 +1485,23 @@ public class MurmurIME extends InputMethodService {
         chat = next;
         Translate.chatLang = chat == null ? "" : chat.lang;
         Translate.chatOff = chat != null && chat.off;
-        Translate.chatSend = chat != null && chat.send;
+        if (chat != null && !Prefs.sp(this).contains(Prefs.SEND_LAST)) {
+            // From 1.9: if he turned sending on in any chat, that's his last choice.
+            boolean any = false;
+            for (ChatLog.Chat c : ChatLog.all(this)) any |= c.send;
+            Prefs.sp(this).edit().putBoolean(Prefs.SEND_LAST, any).apply();
+        }
+        // A chat Murmur is sure of uses its own switch. Otherwise his last ⇄ choice holds: 1.9
+        // used the switch of whichever chat it guessed, often one set to English.
+        Translate.chatSend = chat != null && (chatKnown() ? chat.send : Prefs.flag(this, Prefs.SEND_LAST, false));
         if (chat != null && chat.app.isEmpty()) chat.app = appLabel(editorPkg);
+        if (chat != null) {
+            String to = Translate.target(this);
+            String d = (chat.app.isEmpty() ? editorPkg : chat.app) + " · " + ChatLog.openLabel(editorPkg)
+                    + " · sends " + (to.isEmpty() ? "as you say it" : "in " + to)
+                    + (chatKnown() ? "" : " (your last ⇄ choice)");
+            if (!d.equals(Prefs.get(this, Prefs.DIAG_KEYBOARD, ""))) Prefs.sp(this).edit().putString(Prefs.DIAG_KEYBOARD, d).apply();
+        }
     }
 
     /**
@@ -1477,17 +1525,17 @@ public class MurmurIME extends InputMethodService {
         CharSequence text;
         String closeLabel;
         // Which way this chat sends, so it's plain before he types.
-        String state = ch == null ? "" : ch.send
-                ? "⇄ To " + ch.title() + " in " + to + " · only this chat"
-                : "⇄ To " + ch.title() + " in " + Translate.mine(this) + " · tap ⇄ to send in " + Translate.theirsDefault(this);
-        if (ch != null && ch.send && !ch.lang.isEmpty()) state = "⇄ To " + ch.title() + " in " + ch.lang + " · only this chat";
+        boolean sending = ch != null && !to.isEmpty();
+        String state = ch == null ? "" : "⇄ " + sendingLine() + (sending
+                ? (chatKnown() ? " · only this chat" : " · can't tell which chat, so your last ⇄ choice")
+                : " · tap ⇄ to send in " + Translate.theirsDefault(this));
         if (hasThread) {
             android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(state);
             sb.setSpan(new android.text.style.ForegroundColorSpan(0xFFDDD6FE), 0, sb.length(), 0);
             sb.setSpan(new android.text.style.RelativeSizeSpan(0.85f), 0, sb.length(), 0);
             sb.append('\n').append(thread(ch, incomingExpanded ? 20 : 2));
             text = sb;
-            bg = ch.send ? 0xFF4C1D95 : 0xFF334155;
+            bg = sending ? 0xFF4C1D95 : 0xFF334155;
             closeLabel = incomingExpanded ? "▴" : "✕";
         } else if (ch != null && ch.off) {
             text = "⇄ Live Translate is off for " + ch.title() + " · tap to turn it on";
@@ -1496,7 +1544,7 @@ public class MurmurIME extends InputMethodService {
         } else if (texting) {
             text = (state.isEmpty() ? "⇄ Live Translate" : state) + " · their replies show here in "
                     + Translate.mine(this) + (setupMissing() ? " · tap to finish setup" : "");
-            bg = ch != null && ch.send ? 0xFF2E1065 : 0xFF334155;
+            bg = sending ? 0xFF2E1065 : 0xFF334155;
             closeLabel = "Off";
         } else {
             text = "→ Translating what you say into " + to;

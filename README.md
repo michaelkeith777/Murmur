@@ -27,6 +27,15 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.3
+
+- **Spanish sticks to your choice.** When Murmur is sure which chat you're in, that chat keeps
+  its own setting, so Byron can get Spanish and your boss English. When it can't tell which chat
+  is open, it now uses your last ⇄ choice instead of falling back to English.
+- **You can see what Murmur decided.** The line above the keys says who you're sending to and in
+  which language, or that Murmur can't tell which chat it is. Live Translate's status card shows
+  what the keyboard decided and how your last message went out.
+
 ## What's new in 1.9.2
 
 - **Sending in Spanish stays on for that chat.** In 1.9 a chat that had sending turned on could

@@ -111,7 +111,7 @@ public class MurmurChatReader extends AccessibilityService {
         // Tells the keyboard which chat is open, so its strip shows that chat's thread.
         final String from = chatScreen ? steadyName(root, pkg) : "";
         if (!chatScreen) nameWin = "";
-        ChatLog.setOpen(this, pkg, from);
+        ChatLog.setOpen(this, pkg, from, chatScreen && nameSure);
         if (!chatScreen) return;
         String key = ChatLog.key(pkg, from);
         if (awayFrom != null && awayFrom.equals(key) && bubble == null && !MurmurIME.inputShown) {
@@ -250,7 +250,7 @@ public class MurmurChatReader extends AccessibilityService {
     }
 
     private String nameWin = "", lastName = "", pendingName = "";
-    private boolean nameById;
+    private boolean nameById, nameSure;
 
     /**
      * The open chat's name, held steady. 1.9 read it fresh on every change, and in apps without a
@@ -265,16 +265,19 @@ public class MurmurChatReader extends AccessibilityService {
             nameWin = win;
             lastName = n;
             pendingName = "";
+            nameSure = nameById;
             return n;
         }
         if (n.equals(lastName)) {
             pendingName = "";
+            nameSure = !n.isEmpty();
             return n;
         }
         if (n.isEmpty()) return lastName;
         if (nameById || n.equals(pendingName)) {
             lastName = n;
             pendingName = "";
+            nameSure = true;
             return n;
         }
         pendingName = n;

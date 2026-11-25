@@ -58,6 +58,11 @@ final class Prefs {
     /** Live Translate's status: the chat the open-chat reader last saw, and the last reply it caught. */
     static final String DIAG_READING = "diag_reading";
     static final String DIAG_SEEN = "diag_seen";
+    /** Texting mode: the last ⇄ choice, used when Murmur can't tell which chat is open. */
+    static final String SEND_LAST = "send_last";
+    /** What the keyboard last decided (app, chat, language) and how the last message went out. */
+    static final String DIAG_KEYBOARD = "diag_keyboard";
+    static final String DIAG_SENT = "diag_sent";
     /** Texting mode diagnostics, shown in settings: when the reader connected and what it last did. */
     static final String DIAG_CONNECTED = "diag_connected";
     static final String DIAG_LAST = "diag_last";

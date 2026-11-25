@@ -60,7 +60,8 @@ public class LiveTranslateActivity extends Activity {
 
     private final SharedPreferences.OnSharedPreferenceChangeListener watch = (sp, key) -> {
         if (Prefs.IN_AT.equals(key) || Prefs.TEXTING.equals(key) || Prefs.DIAG_LAST.equals(key)
-                || Prefs.DIAG_SEEN.equals(key) || Prefs.DIAG_READING.equals(key)) {
+                || Prefs.DIAG_SEEN.equals(key) || Prefs.DIAG_READING.equals(key)
+                || Prefs.DIAG_KEYBOARD.equals(key) || Prefs.DIAG_SENT.equals(key)) {
             runOnUiThread(this::render);
         }
     };
@@ -305,6 +306,10 @@ public class LiveTranslateActivity extends Activity {
         if (!reading.isEmpty()) box.addView(line("Last chat opened: " + reading, dim, 12));
         String seen = Prefs.get(this, Prefs.DIAG_SEEN, "");
         box.addView(line(seen.isEmpty() ? "No reply caught yet" : "Last reply caught: " + seen, dim, 12));
+        String kb = Prefs.get(this, Prefs.DIAG_KEYBOARD, "");
+        if (!kb.isEmpty()) box.addView(line("Keyboard: " + kb, dim, 12));
+        String sent = Prefs.get(this, Prefs.DIAG_SENT, "");
+        if (!sent.isEmpty()) box.addView(line("Your last message: " + sent, dim, 12));
         String last = Prefs.get(this, Prefs.DIAG_LAST, "");
         if (!last.isEmpty()) box.addView(line("Last: " + last, dim, 12));
         if (!readerRunning || !notes) {

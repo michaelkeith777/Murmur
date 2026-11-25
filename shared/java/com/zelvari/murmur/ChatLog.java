@@ -55,19 +55,34 @@ final class ChatLog {
     // ---- the chat open on screen, as the open-chat reader last saw it ----------------
 
     private static volatile String openPkg = "", openName = "";
+    /** The reader is sure of the name: from the app's own title view, or read the same twice. */
+    private static volatile boolean openSure;
 
-    static void setOpen(Context c, String pkg, String name) {
+    static void setOpen(Context c, String pkg, String name, boolean sure) {
         if (pkg == null) pkg = "";
         if (name == null) name = "";
-        if (pkg.equals(openPkg) && name.equals(openName)) return;
+        sure = sure && !name.isEmpty();
+        if (pkg.equals(openPkg) && name.equals(openName) && sure == openSure) return;
         openPkg = pkg;
         openName = name;
+        openSure = sure;
         Prefs.sp(c).edit().putLong(Prefs.CHAT_OPEN_AT, System.currentTimeMillis()).apply();
     }
 
-    /** True when the open-chat reader has named this chat as the one on screen in that app. */
+    /** True when the open-chat reader is sure this chat is the one on screen in that app. */
     static boolean namedOpen(String pkg, String name) {
+        return openSure && readsOpen(pkg, name);
+    }
+
+    /** True when the reader's latest read of the screen names this chat, sure or not. */
+    static boolean readsOpen(String pkg, String name) {
         return name != null && !name.isEmpty() && pkg != null && pkg.equals(openPkg) && name.equals(openName);
+    }
+
+    /** What the reader last read in this app, for the status card: the name, a guess, or nothing. */
+    static String openLabel(String pkg) {
+        if (pkg == null || !pkg.equals(openPkg) || openName.isEmpty()) return "can't tell which chat";
+        return openSure ? "chat with " + openName : "maybe the chat with " + openName + " (not sure yet)";
     }
 
     /**
