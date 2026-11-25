@@ -27,6 +27,17 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.4
+
+- **One switch for Spanish.** ⇄ switches what you send between English and Spanish, and it
+  stays exactly as you set it, in every chat, until you tap it again. Murmur no longer tries to
+  switch by itself per chat. A big purple "SENDING IN SPANISH" bar shows when it's on.
+- **Every reply shows in English.** The bar above the keys shows the latest messages in the app
+  you're in, from whichever chat they came from, so a reply never hides in another chat.
+- **No more missed replies.** A reply you'd had before ("ok", "sí", "jaja") is translated again,
+  two replies that arrive together are both translated, and your own replies in a notification
+  aren't taken for theirs.
+
 ## What's new in 1.9.3
 
 - **Spanish sticks to your choice.** When Murmur is sure which chat you're in, that chat keeps

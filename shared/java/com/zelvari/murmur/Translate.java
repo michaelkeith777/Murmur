@@ -17,8 +17,9 @@ final class Translate {
 
     /** The language dictation is translated into right now, or "" when translate is off. */
     static String target(Context c) {
-        // Live Translate sends in their language only in the chats he turned it on for.
-        if (texting(c)) return chatSend ? theirs(c) : "";
+        // Live Translate: one switch (⇄) that stays exactly as he set it, in every chat. 1.9 tried
+        // to switch by itself per chat, and reading which chat is open wasn't reliable enough.
+        if (texting(c)) return sending(c) ? theirsDefault(c) : "";
         return Prefs.flag(c, Prefs.TRANSLATE_ON, false) ? last(c) : "";
     }
 
@@ -30,6 +31,15 @@ final class Translate {
     /** Texting mode: send in their language, read their replies in yours. */
     static boolean texting(Context c) {
         return Prefs.flag(c, Prefs.TEXTING, false);
+    }
+
+    /** Texting mode: whether what he sends goes out in their language. */
+    static boolean sending(Context c) {
+        return Prefs.flag(c, Prefs.SEND_LAST, false);
+    }
+
+    static void setSending(Context c, boolean on) {
+        Prefs.sp(c).edit().putBoolean(Prefs.SEND_LAST, on).apply();
     }
 
     static void setTexting(Context c, boolean on) {

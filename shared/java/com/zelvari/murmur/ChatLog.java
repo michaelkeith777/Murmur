@@ -40,6 +40,8 @@ final class ChatLog {
         boolean send;
         long at;
         final List<Msg> msgs = new ArrayList<>();
+        /** For the keyboard's feed: the chat with the newest message in it (not saved). */
+        String newestKey = "";
 
         String title() {
             return name.isEmpty() ? (app.isEmpty() ? "this app" : app) : name;
@@ -109,6 +111,41 @@ final class ChatLog {
         ch.pkg = editorPkg;
         ch.name = name;
         return ch;
+    }
+
+    /**
+     * Every recent message in one app, from all its chats, oldest first, each with who wrote it.
+     * The keyboard shows this so a reply always shows up in his language, whichever chat Murmur
+     * thinks is open. Chats with replies turned off are left out. Null when there's nothing.
+     */
+    static synchronized Chat feed(Context c, String pkg) {
+        if (pkg == null || pkg.isEmpty()) return null;
+        List<Msg> out = new ArrayList<>();
+        Chat newest = null;
+        for (Chat ch : load(c)) {
+            if (!ch.pkg.equals(pkg) || ch.off) continue;
+            for (Msg m : ch.msgs) {
+                Msg x = new Msg();
+                x.from = m.mine ? "" : m.from.isEmpty() ? ch.title() : m.from;
+                x.orig = m.orig;
+                x.text = m.text;
+                x.mine = m.mine;
+                x.at = m.at;
+                out.add(x);
+            }
+            if (!ch.msgs.isEmpty() && (newest == null || ch.at > newest.at)) newest = ch;
+        }
+        if (out.isEmpty()) return null;
+        java.util.Collections.sort(out, (a, b) -> Long.compare(a.at, b.at));
+        while (out.size() > MAX_MSGS) out.remove(0);
+        Chat f = new Chat();
+        f.key = "feed|" + pkg;
+        f.pkg = pkg;
+        f.app = newest.app;
+        f.at = out.get(out.size() - 1).at;
+        f.newestKey = newest.key;
+        f.msgs.addAll(out);
+        return f;
     }
 
     static synchronized List<Chat> all(Context c) {

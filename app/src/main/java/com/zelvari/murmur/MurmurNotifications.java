@@ -43,18 +43,96 @@ public class MurmurNotifications extends NotificationListenerService {
     };
 
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
-    /** Messages already handled, so an updated notification isn't translated twice. */
-    private static final ArrayDeque<String> seen = new ArrayDeque<>();
+    /**
+     * Messages handled in the last few minutes, per app, so the same message from a notification
+     * and the open chat (or an updated notification) is translated once. 1.9 kept the last 80
+     * texts with no time limit, so a reply he'd had before ("ok", "sí", "jaja") was never
+     * translated again.
+     */
+    private static final java.util.LinkedHashMap<String, Long> seen = new java.util.LinkedHashMap<>();
+    static final long SEEN_FOR = 3 * 60_000L;
 
-    /** True the first time a message is seen, from a notification or the open chat; false after. */
-    static boolean claim(String text) {
-        String mark = text.trim().replaceAll("\\s+", " ");
+    /** True the first time a message is seen in this app in the last few minutes; false after. */
+    static boolean claim(String pkg, String text) {
+        String mark = (pkg == null ? "" : pkg) + "|" + text.trim().replaceAll("\\s+", " ");
+        long now = System.currentTimeMillis();
         synchronized (seen) {
-            if (seen.contains(mark)) return false;
-            seen.addLast(mark);
-            while (seen.size() > 80) seen.removeFirst();
+            java.util.Iterator<java.util.Map.Entry<String, Long>> it = seen.entrySet().iterator();
+            while (it.hasNext()) if (now - it.next().getValue() > SEEN_FOR) it.remove();
+            if (seen.containsKey(mark)) return false;
+            seen.put(mark, now);
             return true;
         }
+    }
+
+    /** One message read from a notification. */
+    static final class In {
+        final String from, text, chat;
+        final long time;
+
+        In(String from, String text, String chat, long time) {
+            this.from = from;
+            this.text = text;
+            this.chat = chat;
+            this.time = time;
+        }
+    }
+
+    /** The newest message time handled per conversation, so older ones in an update are skipped. */
+    private static final java.util.HashMap<String, Long> lastTime = new java.util.HashMap<>();
+
+    /**
+     * The messages in a notification that are new and from someone else. A messaging notification
+     * carries the conversation's recent messages: 1.9 read only the last one, so when two replies
+     * came in one update, the first was never translated. It also took his own replies (no sender)
+     * for theirs. Older messages, already handled, are left out by their time.
+     */
+    static java.util.List<In> incoming(Bundle x, String pkg) {
+        java.util.List<In> out = new java.util.ArrayList<>();
+        CharSequence convo = x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
+        CharSequence title = convo != null ? convo : x.getCharSequence(Notification.EXTRA_TITLE);
+        String chat = title == null ? "" : title.toString();
+        Parcelable[] messages = x.getParcelableArray(Notification.EXTRA_MESSAGES);
+        boolean selfKnown = x.containsKey("android.messagingUser") || x.containsKey(Notification.EXTRA_SELF_DISPLAY_NAME);
+        CharSequence selfName = x.getCharSequence(Notification.EXTRA_SELF_DISPLAY_NAME);
+        if (messages != null && messages.length > 0) {
+            String conv = pkg + "|" + chat;
+            long since;
+            synchronized (lastTime) {
+                Long t = lastTime.get(conv);
+                since = t == null ? -1 : t;
+            }
+            long newest = since;
+            int start = Math.max(0, messages.length - 5);
+            for (int i = start; i < messages.length; i++) {
+                if (!(messages[i] instanceof Bundle)) continue;
+                Bundle m = (Bundle) messages[i];
+                CharSequence t = m.getCharSequence("text");
+                if (t == null || t.toString().trim().isEmpty()) continue;
+                long time = m.getLong("time", 0);
+                // The first time a chat is seen, only its newest message; then whatever's newer.
+                if (since < 0 ? i != messages.length - 1 : time != 0 && time <= since) continue;
+                if (time > newest) newest = time;
+                CharSequence s = m.getCharSequence("sender");
+                Object person = m.get("sender_person");
+                if (s == null && person instanceof Person && android.os.Build.VERSION.SDK_INT >= 28) {
+                    s = ((Person) person).getName();
+                }
+                boolean self = (s == null && selfKnown) || (s != null && selfName != null && s.toString().equals(selfName.toString()));
+                if (self) continue;
+                out.add(new In(s != null ? s.toString() : chat, t.toString().trim(), chat, time));
+            }
+            if (newest > since) synchronized (lastTime) {
+                lastTime.put(conv, newest);
+            }
+            return out;
+        }
+        CharSequence[] lines = x.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
+        CharSequence t = lines != null && lines.length > 0 ? lines[lines.length - 1] : null;
+        if (t == null) t = x.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        if (t == null) t = x.getCharSequence(Notification.EXTRA_TEXT);
+        if (t != null && !t.toString().trim().isEmpty()) out.add(new In(chat, t.toString().trim(), chat, 0));
+        return out;
     }
 
     static boolean allowed(Context c) {
@@ -108,63 +186,43 @@ public class MurmurNotifications extends NotificationListenerService {
         boolean chat = test || messages != null || Notification.CATEGORY_MESSAGE.equals(n.category) || isChatApp(pkg);
         if (!chat) return;
 
-        String from = null, text = null;
-        CharSequence convo = x.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE);
-        CharSequence title = convo != null ? convo : x.getCharSequence(Notification.EXTRA_TITLE);
-        if (messages != null && messages.length > 0 && messages[messages.length - 1] instanceof Bundle) {
-            Bundle last = (Bundle) messages[messages.length - 1];
-            CharSequence t = last.getCharSequence("text");
-            CharSequence s = last.getCharSequence("sender");
-            Object person = last.get("sender_person");
-            if (s == null && android.os.Build.VERSION.SDK_INT >= 28 && person instanceof Person) {
-                s = ((Person) person).getName();
+        java.util.List<In> ins = incoming(x, pkg);
+        if (ins.isEmpty()) {
+            if ((n.flags & Notification.FLAG_GROUP_SUMMARY) == 0 && messages == null) {
+                note(this, appName(pkg) + ": a message with no text to read");
             }
-            if (t != null) text = t.toString();
-            from = s != null ? s.toString() : title != null ? title.toString() : "";
-        }
-        if (text == null) {
-            CharSequence[] lines = x.getCharSequenceArray(Notification.EXTRA_TEXT_LINES);
-            CharSequence t = lines != null && lines.length > 0 ? lines[lines.length - 1] : null;
-            if (t == null) t = x.getCharSequence(Notification.EXTRA_BIG_TEXT);
-            if (t == null) t = x.getCharSequence(Notification.EXTRA_TEXT);
-            if (t != null) text = t.toString();
-            if (from == null) from = title == null ? "" : title.toString();
-        }
-        if (text == null || text.trim().isEmpty()) {
-            if ((n.flags & Notification.FLAG_GROUP_SUMMARY) == 0) note(this, appName(pkg) + ": a message with no text to read");
             return;
         }
-        text = text.trim();
-        if (text.length() > 1500) text = text.substring(0, 1500);
-        // His own message (what Murmur just sent in their language) shows up in some chat notifications too.
-        if (!test && Translate.wasSent(this, text)) {
-            note(this, appName(pkg) + ": skipped your own message");
-            return;
-        }
-
-        if (!claim(text)) return;
-
         final String key = Prefs.get(this, Prefs.API_KEY, "");
-        if (key.isEmpty()) {
-            note(this, "no API key, so nothing was translated");
-            return;
-        }
         String b = Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL);
         final String base = b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
         final String model = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
         final String mine = Translate.mine(this);
-        // The chat: a group's name, or the person for a one-to-one chat.
-        String chatName = convo != null ? convo.toString() : title != null ? title.toString() : from;
-        ChatLog.Chat ch = ChatLog.get(this, ChatLog.key(pkg, chatName));
-        if (ch != null && ch.off) {
-            note(this, appName(pkg) + ": Live Translate is off for " + ch.title());
-            return;
-        }
-        final String fFrom = from, fText = text, app = appName(pkg), fChat = chatName, fPkg = test ? getPackageName() : pkg;
+        final String app = appName(pkg);
+        final String fPkg = test ? getPackageName() : pkg;
         final PendingIntent open = test ? null : n.contentIntent;
         final Context ctx = getApplicationContext();
-        note(this, app + ": translating a message from " + (from.isEmpty() ? "someone" : from) + "…");
-        worker.execute(() -> handle(ctx, base, key, model, mine, fPkg, fChat, fFrom, fText, app, open, false));
+        for (In in : ins) {
+            String text = in.text.length() > 1500 ? in.text.substring(0, 1500) : in.text;
+            // His own message (what Murmur just sent in their language) shows up in some chat notifications too.
+            if (!test && Translate.wasSent(this, text)) {
+                note(this, app + ": skipped your own message");
+                continue;
+            }
+            if (!claim(pkg, text)) continue;
+            if (key.isEmpty()) {
+                note(this, "no API key, so nothing was translated");
+                return;
+            }
+            ChatLog.Chat ch = ChatLog.get(this, ChatLog.key(pkg, in.chat));
+            if (ch != null && ch.off) {
+                note(this, app + ": Live Translate is off for " + ch.title());
+                continue;
+            }
+            final String fFrom = in.from, fChat = in.chat, fText = text;
+            note(this, app + ": translating a message from " + (fFrom.isEmpty() ? "someone" : fFrom) + "…");
+            worker.execute(() -> handle(ctx, base, key, model, mine, fPkg, fChat, fFrom, fText, app, open, false));
+        }
     }
 
     /** Translates one message and shows it; shared with the settings screen's test button. */
