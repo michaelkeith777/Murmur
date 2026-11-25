@@ -113,6 +113,10 @@ public class MurmurChatReader extends AccessibilityService {
         ChatLog.setOpen(this, pkg, from);
         if (!chatScreen) return;
         String key = ChatLog.key(pkg, from);
+        if (awayFrom != null && awayFrom.equals(key) && bubble == null && !MurmurIME.inputShown) {
+            awayFrom = null;
+            showBubble(key, bubbleOpen);
+        }
         if (!key.equals(chatKey)) {
             // Another chat: what's showing now is already read.
             chatKey = key;
@@ -342,7 +346,10 @@ public class MurmurChatReader extends AccessibilityService {
             } catch (Exception ignored) {
             }
         }));
-        row.addView(bubbleButton("✕ Close", v -> removeBubble()));
+        row.addView(bubbleButton("✕ Close", v -> {
+            awayFrom = null;
+            removeBubble();
+        }));
         box.addView(row);
         t.setOnClickListener(v -> {
             bubbleOpen = !expanded;
@@ -362,6 +369,9 @@ public class MurmurChatReader extends AccessibilityService {
         try {
             wm.addView(box, lp);
             bubble = box;
+            awayFrom = null;
+            ui.removeCallbacks(watchAway);
+            ui.postDelayed(watchAway, 1500);
             bubbleKey = chatKey;
             bubbleOpen = expanded;
         } catch (RuntimeException ignored) {
@@ -379,7 +389,41 @@ public class MurmurChatReader extends AccessibilityService {
         return b;
     }
 
+    /**
+     * The bubble belongs to the chat app. It floats over every app, so once he leaves for another
+     * app (YouTube, say) it steps aside, or it would sit over that app's buttons, and it comes
+     * back when he returns to that chat.
+     */
+    private String awayFrom;
+    private int awayChecks;
+    private final Runnable watchAway = this::checkAway;
+
+    private void checkAway() {
+        if (bubble == null) return;
+        String p = null;
+        try {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && r.getPackageName() != null) p = r.getPackageName().toString();
+        } catch (RuntimeException ignored) {
+        }
+        boolean here = p != null && (isChatApp(p) || p.equals(getPackageName()) || p.equals("com.android.systemui"));
+        awayChecks = here ? 0 : awayChecks + 1;
+        if (awayChecks >= 2) {
+            awayFrom = bubbleKey;
+            awayChecks = 0;
+            removeBubble();
+            return;
+        }
+        ui.postDelayed(watchAway, 1500);
+    }
+
+    private static boolean isChatApp(String pkg) {
+        for (String id : BUBBLE_IDS) if (id.startsWith(pkg + ":")) return true;
+        return false;
+    }
+
     private void removeBubble() {
+        ui.removeCallbacks(watchAway);
         if (bubble == null) return;
         try {
             getSystemService(android.view.WindowManager.class).removeView(bubble);

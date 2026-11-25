@@ -27,6 +27,12 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.8.2
+
+- **The floating bubble only shows in your chat app.** It used to stay on top of every app until
+  you closed it, so it could sit over buttons in other apps (like YouTube's play button). Now it
+  steps aside when you leave the chat app and comes back when you return to that chat.
+
 ## What's new in 1.8.1
 
 - **Their replies in the open chat now come back in your language.** 1.8 started over each time
