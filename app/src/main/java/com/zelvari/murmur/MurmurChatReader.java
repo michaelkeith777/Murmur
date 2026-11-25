@@ -261,7 +261,40 @@ public class MurmurChatReader extends AccessibilityService {
             } catch (RuntimeException ignored) {
             }
         }
-        return "";
+        // Other apps: the name at the top of the chat, so each person still gets their own chat.
+        try {
+            int screenH = getResources().getDisplayMetrics().heightPixels;
+            String[] best = {""};
+            int[] bestTop = {Integer.MAX_VALUE};
+            topText(root, 0, screenH / 6, best, bestTop);
+            return best[0];
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    private void topText(AccessibilityNodeInfo n, int depth, int limit, String[] best, int[] bestTop) {
+        if (n == null || depth > 25) return;
+        CharSequence cls = n.getClassName();
+        String c = cls == null ? "" : cls.toString();
+        if (n.isEditable() || c.contains("RecyclerView") || c.contains("ListView")) return;
+        CharSequence t = n.getText();
+        if (t != null && c.endsWith("TextView")) {
+            String s = t.toString().trim();
+            android.graphics.Rect r = new android.graphics.Rect();
+            n.getBoundsInScreen(r);
+            if (s.length() > 0 && s.length() <= 50 && r.top >= 0 && r.top < limit && r.top < bestTop[0]
+                    && !NOT_A_MESSAGE.matcher(s).matches()) {
+                best[0] = s;
+                bestTop[0] = r.top;
+            }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) {
+            try {
+                topText(n.getChild(i), depth + 1, limit, best, bestTop);
+            } catch (RuntimeException ignored) {
+            }
+        }
     }
 
     // ---- floating bubble -------------------------------------------------------------
