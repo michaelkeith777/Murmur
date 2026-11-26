@@ -27,6 +27,16 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 2.1
+
+- **Space bar right of the period.** The bottom row is now `?123 🌐 , . space ⏎`, so the space bar sits under your right thumb. In email and web boxes, `@` or `/` and `.com` stay on the row.
+- **Fewer miskeys.** Taps are read a little above where your finger lands (fingers hit low), and suggestions weigh how close each tap was to the keys around it.
+- **Fix obvious misspellings (optional, off by default).** Turn it on in Murmur → "Fix obvious misspellings". It only fixes a word when it's clearly a typo of a common word (teh → the, becuase → because). Slang, names and capitalized words in mid-sentence are left alone, and backspace right after a fix brings back what you typed.
+- **Each chat keeps its language.** With translate on, every chat sends in the language you last used there. Switching chats switches the language, with a short note on the bar. Turning translate off still only affects what you write next.
+- **Their language, one tap.** When someone writes to you in a language other than the one you send in, the purple bar offers "tap here to send in X". It never switches by itself; ✕ hides the offer.
+- **✍️ Rewrite while translating.** Rewrite (more polite, shorter, more professional) now works with translate on: it rewrites your words, then translates the new version.
+- **Recent copies.** When you open an empty box, the strip shows things you copied in the last 30 minutes. One tap pastes; with translate on, it goes through translate like typing.
+
 ## What's new in 2.0.1
 
 - **Space bar back under the thumb:** in chats the bottom row is ?123, 🌐, comma, space, period and ⏎ again, with a wider space bar. 1.9.6 put ".com" on every bottom row, which pushed the space bar left.

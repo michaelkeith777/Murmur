@@ -185,6 +185,18 @@ public class KeyboardView extends View {
     };
 
     private static final long LONG_MS = 450;
+    /** How far above the touch point a letter tap is aimed, in letter rows. */
+    static final float AIM_UP = 0.12f;
+    private float lastTapX, lastTapY;
+    private boolean lastTapLetter;
+
+    /**
+     * Where the last letter tap landed, in key units (key centres at whole numbers, like
+     * {@link Corrector}'s map), or null when the last tap wasn't a letter.
+     */
+    float[] lastTap() {
+        return lastTapLetter ? new float[]{lastTapX, lastTapY} : null;
+    }
 
     public KeyboardView(Context context) {
         this(context, null);
@@ -332,10 +344,10 @@ public class KeyboardView extends View {
         add(4, new Key(SWITCH, null, "🌐", 1f, true));
         String c = address == 1 ? "@" : address == 2 ? "/" : ",";
         add(4, new Key(CHAR, c, c, 1f, false));
-        // In a chat the space bar takes the room: left edge at about a third of the width, centre
-        // a little right of the middle, under the thumb.
-        add(4, new Key(SPACE, " ", "space", address == 0 ? 3.6f : 3.2f, true));
+        // The period sits left of the space bar, so space is out toward the right thumb
+        // (his ask, 2.1). In a chat the space bar is wide: from a little left of the middle to ⏎.
         add(4, new Key(CHAR, ".", ".", 1f, false));
+        add(4, new Key(SPACE, " ", "space", address == 0 ? 3.6f : 3.2f, true));
         // One tap for the end of an email or web address, in the boxes that take one.
         if (address != 0) add(4, new Key(CHAR, ".com", ".com", 1.3f, true));
         add(4, new Key(ENTER, null, "⏎", 1.5f, false));
@@ -528,6 +540,21 @@ public class KeyboardView extends View {
                 float x = e.getX(idx), y = e.getY(idx);
                 Key k = keyAt(x, y);
                 if (k == null) return true;
+                if (isLetter(k)) {
+                    // A fingertip lands a little below where it's aimed, so on the letters the
+                    // tap counts a bit higher up. Only between letter rows: never onto the number
+                    // row, and the space row and shift / ⌫ keys stay as they are.
+                    Key up = keyAt(x, y - rowLetter * AIM_UP);
+                    if (up != null && isLetter(up)) {
+                        k = up;
+                        y -= rowLetter * AIM_UP;
+                    }
+                    lastTapX = x / keyW - 0.5f;
+                    lastTapY = (y - lettersTop) / rowLetter - 0.5f;
+                    lastTapLetter = true;
+                } else {
+                    lastTapLetter = false;
+                }
                 Touch t = new Touch();
                 t.key = k;
                 t.downX = x;

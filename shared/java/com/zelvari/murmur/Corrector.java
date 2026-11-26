@@ -19,6 +19,11 @@ final class Corrector {
         String autocorrect;
         /** The typed word is a known word. */
         boolean valid;
+        /**
+         * The careful fix for "Fix obvious misspellings": only for a word that isn't in the word
+         * list, and only when one common word is clearly what was meant. Null otherwise.
+         */
+        String sure;
     }
 
     // QWERTY key centres in key units (row 2 starts half a key in, row 3 one and a half).
@@ -46,6 +51,26 @@ final class Corrector {
 
     /** Edit distance where neighbouring-key slips, doubled letters and swaps are cheap. */
     static float distance(String a, String b, float limit) {
+        return distance(a, b, limit, null);
+    }
+
+    /**
+     * What swapping the typed letter for {@code cb} costs, given where the finger landed
+     * ({@code tap}, in key units, or null). A tap near the edge of two keys makes the other
+     * key cheap; a tap in the middle of its key makes it dearer than a plain neighbour slip.
+     */
+    static float subCost(char ca, char cb, float[] tap) {
+        if (ca == cb) return 0f;
+        if (tap == null || cb < 'a' || cb > 'z') return adjacent(ca, cb) ? SUB_NEAR : SUB_FAR;
+        float dx = tap[0] - KX[cb - 'a'], dy = tap[1] - KY[cb - 'a'];
+        float d = (float) Math.sqrt(dx * dx + dy * dy);
+        if (d > 1.6f) return SUB_FAR;
+        return Math.max(0.1f, Math.min(SUB_FAR, 0.1f + 0.8f * (d - 0.45f)));
+    }
+
+    /** As above, with each typed letter's tap point ({@code taps[i]} for {@code a.charAt(i)}). */
+    static float distance(String a, String b, float limit, float[][] taps) {
+        if (taps != null && taps.length != a.length()) taps = null;
         int n = a.length(), m = b.length();
         if (Math.abs(n - m) > limit + 0.01f) return Float.MAX_VALUE;
         float[][] d = new float[n + 1][m + 1];
@@ -56,7 +81,7 @@ final class Corrector {
             char ca = a.charAt(i - 1);
             for (int j = 1; j <= m; j++) {
                 char cb = b.charAt(j - 1);
-                float sub = ca == cb ? 0f : adjacent(ca, cb) ? SUB_NEAR : SUB_FAR;
+                float sub = subCost(ca, cb, taps == null ? null : taps[i - 1]);
                 float best = d[i - 1][j - 1] + sub;
                 // Typed an extra letter (a doubled one is the cheap, common case).
                 float del = i > 1 && a.charAt(i - 2) == ca ? DOUBLE : INDEL;
@@ -97,6 +122,11 @@ final class Corrector {
     }
 
     static Result suggest(Dict dict, String typed, int max) {
+        return suggest(dict, typed, max, null);
+    }
+
+    /** {@code taps}: where each letter of the word was tapped (see {@link #subCost}), or null. */
+    static Result suggest(Dict dict, String typed, int max, float[][] taps) {
         Result r = new Result();
         String key = Dict.keyOf(typed);
         if (key.isEmpty()) return r;
@@ -124,7 +154,7 @@ final class Corrector {
                         score = e.freq / 100f - 0.12f * (k.length() - key.length()) - 0.6f;
                     } else {
                         if (Math.abs(k.length() - key.length()) > limit) continue;
-                        dist = distance(key, k, limit);
+                        dist = distance(key, k, limit, taps);
                         if (dist == Float.MAX_VALUE) continue;
                         score = e.freq / 100f - WEIGHT * dist;
                     }
@@ -141,6 +171,7 @@ final class Corrector {
         }
 
         if (!plain) return r;
+        if (exact == null) r.sure = sureFix(typed, key, best);
         if (exact != null) {
             // "i" → "I", "i'm" → "I'm": same word, the list knows how to write it.
             if (!exact.word.equals(typed) && exact.word.equalsIgnoreCase(typed)
@@ -165,6 +196,34 @@ final class Corrector {
             r.autocorrect = Dict.matchCase(typed, top.e.word);
         }
         return r;
+    }
+
+    /** Common enough that fixing to it is safe: about the 25,000 most used words. */
+    static final int SURE_FREQ = 280;
+    /** How far ahead of the next guess the fix has to be (score units). */
+    static final float SURE_MARGIN = 0.6f;
+
+    /**
+     * The careful autocorrect. Fixes a word only when all of these hold: it isn't in the word
+     * list (his own words and names are in it, so they're never touched), it's three letters or
+     * more, all small letters after the first, it starts like the fix (or its first two letters
+     * are swapped), the fix is one slip away (a neighbouring key, a swap, a doubled or missed
+     * letter; for 3 and 4 letter words only a near slip), the fix is a common word, and no other
+     * word comes close. Anything else stays as typed, with the fixes above the keys.
+     */
+    private static String sureFix(String typed, String key, List<Cand> best) {
+        if (key.length() < 3 || key.length() != typed.replace("'", "").length()) return null;
+        for (int i = 1; i < typed.length(); i++) if (Character.isUpperCase(typed.charAt(i))) return null;
+        if (best.isEmpty() || best.get(0).completion) return null;
+        Cand top = best.get(0);
+        float most = key.length() <= 4 ? 0.6f : 1.0f;
+        if (top.dist > most + 0.001f || top.e.freq < SURE_FREQ || top.e.quiet) return null;
+        String k = top.e.key;
+        boolean sameStart = k.charAt(0) == key.charAt(0)
+                || (k.length() > 1 && k.charAt(0) == key.charAt(1) && k.charAt(1) == key.charAt(0));
+        if (!sameStart) return null;
+        if (best.size() > 1 && top.score - best.get(1).score < SURE_MARGIN) return null;
+        return Dict.matchCase(typed, top.e.word);
     }
 
     private static Cand firstCorrection(List<Cand> best) {

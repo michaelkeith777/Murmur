@@ -136,10 +136,10 @@
         <Switch
             android:id="@+id/autocorrect"
             style="@style/Label"
-            android:text="Auto-correct typos by itself" />
+            android:text="Fix obvious misspellings" />
         <TextView
             style="@style/Hint"
-            android:text="Off: Murmur never changes a word on its own. It shows your word and the best fixes above the keys, and only swaps one in when you tap it. It learns which fix you pick. On: it fixes typos when you hit space, and backspace right after puts back what you typed." />
+            android:text="Off: Murmur never changes a word on its own. It shows your word and the best fixes above the keys, and only swaps one in when you tap it. It learns which fix you pick. On: when you hit space it fixes a word only if it isn't a real word and one common word is clearly what you meant, like teh to the. Real words, your own words and names, and capitalized words mid-sentence are never changed. The fix shows in bold above the keys first, and backspace right after puts back what you typed." />
         <Switch
             android:id="@+id/swipe"
             style="@style/Label"

@@ -171,6 +171,96 @@ final class Translate {
         return hits >= 2 || (hits == 1 && words <= 3 && !t.matches("(?i).*\\b(i|you|the|is|are|and|to|ok|okay|lol)\\b.*"));
     }
 
+    // ---- 2.1: which language a message is in ---------------------------------------------
+
+    private static final String[][] WORDS = {
+            {"Spanish", "que|qué|como|cómo|estás|estas|está|esta|hola|gracias|pero|porque|bueno|bien|mañana|hoy|ahora|tengo|tienes|quiero|vamos|voy|eres|soy|muy|mucho|nada|también|donde|dónde|cuando|claro|yo|el|los|las|una|es|de|en|con|del|al|lo|le|me|se|ya|aquí|nos|hacer|puedo|usted|todo|y|la|un|por|para|mi|tu|te|no"},
+            {"Portuguese", "você|voce|obrigado|obrigada|não|nao|sim|muito|bom|boa|tudo|bem|estou|está|vou|tenho|quero|amanhã|hoje|agora|também|onde|quando|eu|ele|ela|nós|uma|um|os|as|do|da|dos|das|no|na|em|com|para|por|que|é|e|de|meu|minha|seu|sua|isso|aqui|obrigad"},
+            {"French", "je|tu|vous|nous|il|elle|est|suis|es|sont|pas|merci|bonjour|salut|oui|non|très|bien|avec|pour|dans|sur|une|un|le|la|les|des|du|de|et|que|qui|ça|ca|c'est|mais|demain|aujourd'hui|maintenant|aussi|où|quand|mon|ma|mes|ton|ta|tes|ce|cette|j'ai|t'es|on|y|au|aux|moi|toi"},
+            {"Italian", "ciao|grazie|sono|sei|è|non|sì|molto|bene|anche|perché|domani|oggi|adesso|ora|dove|quando|io|tu|lui|lei|noi|voi|una|uno|il|lo|la|gli|le|di|da|in|con|per|che|e|mio|mia|tuo|tua|questo|questa|ho|hai|ha|abbiamo|come|cosa|buongiorno|stai|sto"},
+            {"German", "ich|du|sie|wir|ihr|ist|bin|bist|sind|nicht|danke|hallo|ja|nein|sehr|gut|mit|für|und|oder|aber|der|die|das|ein|eine|einen|zu|auf|im|in|es|wie|was|wo|wann|morgen|heute|jetzt|auch|mein|meine|dein|deine|habe|hast|hat|kann|kannst|noch|schon"},
+            {"Dutch", "ik|jij|je|u|wij|we|zij|is|ben|bent|zijn|niet|dank|bedankt|hallo|hoi|ja|nee|heel|goed|met|voor|en|of|maar|de|het|een|van|op|in|wat|waar|wanneer|morgen|vandaag|nu|ook|mijn|jouw|heb|hebt|heeft|kan|kun|nog|al|dat|die|deze"},
+            {"Tagalog", "ako|ikaw|ka|siya|kami|tayo|kayo|sila|ang|ng|sa|mga|na|ay|hindi|oo|salamat|po|opo|ko|mo|niya|natin|namin|ninyo|nila|ito|iyan|iyon|ano|saan|kailan|bakit|paano|mahal|kita|kumain|ba|lang|din|rin|naman|talaga|kasi"},
+            {"Haitian Creole", "mwen|ou|li|nou|yo|se|pa|mèsi|mesi|bonjou|wi|non|anpil|byen|ak|pou|nan|yon|la|sa|ki|kote|kilè|kounye|demen|jodi|tou|m|w|map|ap|te|gen|vle|kapab|kijan|sak|pase|sou|dako"},
+            {"Polish", "ja|ty|on|ona|my|wy|oni|jest|jestem|jesteś|są|nie|tak|dziękuję|dzięki|cześć|bardzo|dobrze|z|dla|i|lub|ale|w|na|do|co|gdzie|kiedy|jutro|dzisiaj|teraz|też|mój|moja|twój|twoja|mam|masz|ma|się|to|że"},
+            {"Turkish", "ben|sen|o|biz|siz|onlar|ve|bir|bu|şu|evet|hayır|teşekkürler|teşekkür|merhaba|çok|iyi|ile|için|ama|ne|nerede|ne zaman|yarın|bugün|şimdi|da|de|benim|senin|var|yok|mı|mi|mu|mü|nasılsın|tamam"},
+            {"Vietnamese", "tôi|bạn|anh|chị|em|của|và|là|không|có|được|cảm|ơn|xin|chào|rất|tốt|với|cho|nhưng|gì|đâu|khi|nào|mai|hôm|nay|bây|giờ|cũng|này|đó|người|một|những|các"},
+    };
+    private static final java.util.Map<String, java.util.regex.Pattern> WORD_RE = new java.util.LinkedHashMap<>();
+    static {
+        for (String[] w : WORDS) {
+            WORD_RE.put(w[0], java.util.regex.Pattern.compile("(?iu)(?<![\\p{L}'])(" + w[1] + ")(?![\\p{L}'])"));
+        }
+    }
+    private static final java.util.regex.Pattern ENGLISH_COMMON = java.util.regex.Pattern.compile(
+            "(?iu)(?<![\\p{L}'])(the|you|and|is|are|to|of|it|that|this|what|was|for|with|have|i|i'm|im|my|me|your|we|be|do|don't|not|but|so|just|can|will|how|ok|okay|yes|lol|thanks|hey|hi|good|going|know|love|at|on|in|a|an|if|or|get|got|see|there|here|they|he|she|him|her)(?![\\p{L}'])");
+
+    /**
+     * The language a message is plainly written in, or "" when it isn't plain (too short, mixed,
+     * or English). Writing systems decide at once (Korean, Japanese, Russian and so on); for
+     * languages written in the Latin alphabet it needs at least two of that language's common
+     * words and a clear lead over every other language, English included. Used only to offer a
+     * switch: it never changes what he sends by itself.
+     */
+    static String detect(String text) {
+        if (text == null) return "";
+        String t = text.trim();
+        if (t.isEmpty()) return "";
+        int letters = 0, hangul = 0, kana = 0, han = 0, cyr = 0, ukr = 0, arabic = 0, hebrew = 0, deva = 0, greek = 0, thai = 0;
+        for (int i = 0; i < t.length(); i++) {
+            char ch = t.charAt(i);
+            if (!Character.isLetter(ch)) continue;
+            letters++;
+            Character.UnicodeBlock b = Character.UnicodeBlock.of(ch);
+            if (b == Character.UnicodeBlock.HANGUL_SYLLABLES || b == Character.UnicodeBlock.HANGUL_JAMO) hangul++;
+            else if (b == Character.UnicodeBlock.HIRAGANA || b == Character.UnicodeBlock.KATAKANA) kana++;
+            else if (b == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS) han++;
+            else if (b == Character.UnicodeBlock.CYRILLIC) {
+                cyr++;
+                if ("іїєґІЇЄҐ".indexOf(ch) >= 0) ukr++;
+            } else if (b == Character.UnicodeBlock.ARABIC) arabic++;
+            else if (b == Character.UnicodeBlock.HEBREW) hebrew++;
+            else if (b == Character.UnicodeBlock.DEVANAGARI) deva++;
+            else if (b == Character.UnicodeBlock.GREEK) greek++;
+            else if (b == Character.UnicodeBlock.THAI) thai++;
+        }
+        if (letters == 0) return "";
+        float half = letters * 0.5f;
+        if (hangul > half) return "Korean";
+        if (kana > 0 && kana + han > half) return "Japanese";
+        if (han > half) return "Chinese (Simplified)";
+        if (cyr > half) return ukr > 0 ? "Ukrainian" : "Russian";
+        if (arabic > half) return "Arabic";
+        if (deva > half) return "Hindi";
+        if (hebrew > half || greek > half || thai > half) return "";
+        // ñ, ¿ and ¡ are Spanish's own.
+        if (t.indexOf('ñ') >= 0 || t.indexOf('¿') >= 0 || t.indexOf('¡') >= 0) return "Spanish";
+        String[] words = t.split("\\s+");
+        if (words.length < 3) return "";
+        int english = count(ENGLISH_COMMON, t);
+        String best = "";
+        int top = 0, second = 0;
+        for (java.util.Map.Entry<String, java.util.regex.Pattern> e : WORD_RE.entrySet()) {
+            int n = count(e.getValue(), t);
+            if (n > top) {
+                second = top;
+                top = n;
+                best = e.getKey();
+            } else if (n > second) {
+                second = n;
+            }
+        }
+        if (top < 2 || top < second * 2 || top <= english) return "";
+        return best;
+    }
+
+    private static int count(java.util.regex.Pattern p, String t) {
+        java.util.regex.Matcher m = p.matcher(t);
+        int n = 0;
+        while (m.find()) n++;
+        return n;
+    }
+
     static boolean sameText(String a, String b) {
         return norm(a).replaceAll("[^\\p{L}\\p{N} ]", "").equals(norm(b).replaceAll("[^\\p{L}\\p{N} ]", ""));
     }

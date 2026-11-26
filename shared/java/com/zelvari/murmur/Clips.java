@@ -22,10 +22,17 @@ final class Clips {
     static final class Clip {
         final String text;
         final boolean pinned;
+        /** When it was copied (0 for copies saved before 2.1). */
+        final long at;
 
         Clip(String text, boolean pinned) {
+            this(text, pinned, 0);
+        }
+
+        Clip(String text, boolean pinned, long at) {
             this.text = text;
             this.pinned = pinned;
+            this.at = at;
         }
     }
 
@@ -42,7 +49,7 @@ final class Clips {
                 JSONObject o = a.optJSONObject(i);
                 if (o == null) continue;
                 String t = o.optString("t", "");
-                if (!t.isEmpty()) out.add(new Clip(t, o.optBoolean("p", false)));
+                if (!t.isEmpty()) out.add(new Clip(t, o.optBoolean("p", false), o.optLong("at", 0)));
             }
         } catch (JSONException e) {
             return out;
@@ -53,7 +60,7 @@ final class Clips {
     private static void save(Context c, List<Clip> clips) {
         JSONArray a = new JSONArray();
         try {
-            for (Clip k : clips) a.put(new JSONObject().put("t", k.text).put("p", k.pinned));
+            for (Clip k : clips) a.put(new JSONObject().put("t", k.text).put("p", k.pinned).put("at", k.at));
         } catch (JSONException e) {
             return;
         }
@@ -63,6 +70,21 @@ final class Clips {
     private static List<Clip> ordered(List<Clip> pinned, List<Clip> recent) {
         List<Clip> out = new ArrayList<>(pinned);
         out.addAll(recent);
+        return out;
+    }
+
+    /** The newest copies made in the last {@code withinMs}, newest first, at most {@code max}. */
+    static List<String> recent(Context c, long withinMs, int max) {
+        List<Clip> all = list(c);
+        java.util.ArrayList<Clip> fresh = new java.util.ArrayList<>();
+        long since = System.currentTimeMillis() - withinMs;
+        for (Clip k : all) if (k.at >= since && k.at > 0) fresh.add(k);
+        fresh.sort((x, y) -> Long.compare(y.at, x.at));
+        List<String> out = new ArrayList<>();
+        for (Clip k : fresh) {
+            if (out.size() >= max) break;
+            out.add(k.text);
+        }
         return out;
     }
 
@@ -80,10 +102,11 @@ final class Clips {
             }
             (k.pinned ? pinned : recent).add(k);
         }
+        long now = System.currentTimeMillis();
         if (wasPinned) {
-            pinned.add(0, new Clip(t, true));
+            pinned.add(0, new Clip(t, true, now));
         } else {
-            recent.add(0, new Clip(t, false));
+            recent.add(0, new Clip(t, false, now));
         }
         while (recent.size() > MAX_RECENT) recent.remove(recent.size() - 1);
         save(c, ordered(pinned, recent));
@@ -95,9 +118,9 @@ final class Clips {
         for (Clip k : list(c)) {
             if (k.text.equals(text)) {
                 if (k.pinned) {
-                    recent.add(0, new Clip(k.text, false));
+                    recent.add(0, new Clip(k.text, false, k.at));
                 } else if (pinned.size() < MAX_PINNED) {
-                    pinned.add(0, new Clip(k.text, true));
+                    pinned.add(0, new Clip(k.text, true, k.at));
                 } else {
                     recent.add(k);
                 }

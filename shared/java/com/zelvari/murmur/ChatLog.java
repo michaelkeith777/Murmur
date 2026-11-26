@@ -38,6 +38,10 @@ final class ChatLog {
         boolean off;
         /** He turned on sending in their language for this chat (off for every new chat). */
         boolean send;
+        /** 2.1: the language he last sent in here with translate on ("" until he has). */
+        String sendLang = "";
+        /** 2.1: the language the other person's newest message was in, when that was plain. */
+        String theirLang = "";
         long at;
         final List<Msg> msgs = new ArrayList<>();
         /** For the keyboard's feed: the chat with the newest message in it (not saved). */
@@ -231,6 +235,10 @@ final class ChatLog {
             ch.name = name == null ? "" : name.trim();
         }
         if (app != null && !app.isEmpty()) ch.app = app;
+        if (!mine) {
+            String l = Translate.detect(orig != null && !orig.trim().isEmpty() ? orig : text);
+            if (!l.isEmpty()) ch.theirLang = l;
+        }
         Msg m = new Msg();
         m.from = from == null ? "" : from;
         m.orig = orig == null ? "" : orig;
@@ -267,6 +275,22 @@ final class ChatLog {
         placeholder.lang = ch.lang;
         placeholder.off = ch.off;
         placeholder.send = ch.send;
+        save(c);
+    }
+
+    /** Remembers the language he sends in for this chat, making the chat if it's new. */
+    static synchronized void rememberSendLang(Context c, Chat placeholder, String lang) {
+        List<Chat> all = load(c);
+        Chat ch = null;
+        for (Chat x : all) if (x.key.equals(placeholder.key)) ch = x;
+        if (ch == null) {
+            ch = placeholder;
+            if (ch.at == 0) ch.at = System.currentTimeMillis();
+            all.add(0, ch);
+        }
+        if (lang.equals(ch.sendLang)) return;
+        ch.sendLang = lang;
+        placeholder.sendLang = lang;
         save(c);
     }
 
@@ -307,6 +331,8 @@ final class ChatLog {
                 ch.lang = o.optString("lang");
                 ch.off = o.optBoolean("off");
                 ch.send = o.optBoolean("send");
+                ch.sendLang = o.optString("sendLang");
+                ch.theirLang = o.optString("theirLang");
                 ch.at = o.optLong("at");
                 JSONArray ms = o.optJSONArray("msgs");
                 if (ms != null) for (int j = 0; j < ms.length(); j++) {
@@ -344,7 +370,8 @@ final class ChatLog {
             for (Chat ch : chats) {
                 JSONObject o = new JSONObject();
                 o.put("key", ch.key).put("pkg", ch.pkg).put("name", ch.name).put("app", ch.app)
-                        .put("lang", ch.lang).put("off", ch.off).put("send", ch.send).put("at", ch.at);
+                        .put("lang", ch.lang).put("off", ch.off).put("send", ch.send)
+                        .put("sendLang", ch.sendLang).put("theirLang", ch.theirLang).put("at", ch.at);
                 JSONArray ms = new JSONArray();
                 for (Msg m : ch.msgs) {
                     ms.put(new JSONObject().put("from", m.from).put("orig", m.orig).put("text", m.text)

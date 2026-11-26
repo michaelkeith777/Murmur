@@ -240,7 +240,13 @@ public class MurmurIME extends InputMethodService {
         tEnd(restarting && newPkg.equals(editorPkg) && info.initialSelStart <= 0);
         editorPkg = newPkg;
         incomingExpanded = false;
-        pickChat();
+        startingInput = true;
+        langNote = null;
+        try {
+            pickChat();
+        } finally {
+            startingInput = false;
+        }
         paintTranslate();
         if (keys != null && root != null) fitWidth(root.getWidth() > 0 ? root.getWidth()
                 : getResources().getDisplayMetrics().widthPixels);
@@ -258,6 +264,42 @@ public class MurmurIME extends InputMethodService {
         } else if (learned != null && !recording && !busy) {
             render(learned);
         }
+        clearTaps();
+        if (langNote != null && !recording && !busy) render(langNote);
+        langNote = null;
+        showClipStrip();
+    }
+
+    /** How long a copy stays on the top bar for one-tap paste when an empty box opens. */
+    static final long CLIP_STRIP_FOR = 30 * 60_000L;
+
+    /**
+     * 2.1: an empty box opens with the last few things he copied (in the last half hour) on the
+     * top bar, one tap to paste each. Passwords and codes apps mark private are never in the
+     * history. The full history is still under 📋.
+     */
+    void showClipStrip() {
+        if (suggestions == null) return;
+        java.util.List<String> recent = clipStripItems();
+        if (recent == null) return;
+        int n = 0;
+        for (String t : recent) {
+            String one = t.trim().replace('\n', ' ');
+            setCell(n++, "📋 " + (one.length() > 18 ? one.substring(0, 18) + "…" : one), t, CELL_CLIP, false);
+        }
+        while (n < 3) setCell(n++, "", null, CELL_CLIP, false);
+        showStrip();
+    }
+
+    /** The recent copies to offer in an empty box, or null when the strip shouldn't show. */
+    java.util.List<String> clipStripItems() {
+        if (recording || busy || !smartField) return null;
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return null;
+        CharSequence b = ic.getTextBeforeCursor(1, 0), a = ic.getTextAfterCursor(1, 0);
+        if ((b != null && b.length() > 0) || (a != null && a.length() > 0) || tbuf.length() > 0) return null;
+        java.util.List<String> recent = Clips.recent(this, CLIP_STRIP_FOR, 3);
+        return recent.size() < 2 ? null : recent; // one copy: the paste chip already offers it
     }
 
     @Override
@@ -1473,8 +1515,15 @@ public class MurmurIME extends InputMethodService {
             toneList.addView(languageChip((picked ? "✓ " : "") + l[1] + "  " + name,
                     picked ? 0xFF7C3AED : 0xFF334155, () -> {
                 showTonePicker(false);
+                boolean wasOn = Translate.texting(this);
+                if (wasOn && chatKnown()) {
+                    ChatLog.rememberSendLang(this, chat, name);
+                    langChatKey = chat.key;
+                }
                 Prefs.sp(this).edit().putString(Prefs.TRANSLATE_TO, name).apply();
                 switchTranslate(true);
+                // A new language: what's already written goes out in it.
+                if (wasOn && tbuf.length() > 0) tChanged(0);
             }));
         }
         TextView close = new TextView(this);
@@ -1763,6 +1812,48 @@ public class MurmurIME extends InputMethodService {
         return false;
     }
 
+    /**
+     * ✍️ while translating: what he wrote (in his language) is rewritten, then translated again,
+     * so the box still only ever gets the translation.
+     */
+    private void tRewrite(String instruction, String label, String key) {
+        final String src = tbuf.toString();
+        final int gen = tGen;
+        final String base = stripSlash(Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL));
+        final String llmModel = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
+        final String vocab = Prefs.get(this, Prefs.VOCAB, "");
+        render("Rewriting " + label + "…");
+        tWorker.execute(() -> {
+            String out = null, error = null;
+            try {
+                out = AiClient.edit(base, key, llmModel, src, instruction, vocab);
+                if (out == null || out.trim().isEmpty()) error = "The rewrite came back empty. Nothing changed";
+            } catch (Exception e) {
+                String m = e.getMessage();
+                error = m == null || m.isEmpty() ? "Network problem. Try again" : m;
+            }
+            final String fOut = out, fError = error;
+            ui.post(() -> tRewritten(gen, src, fOut, fError));
+        });
+    }
+
+    void tRewritten(int gen, String src, String out, String error) {
+        if (!tmode()) return;
+        if (error != null) {
+            render(error);
+            return;
+        }
+        // He kept typing meanwhile: leave his newer words alone.
+        if (gen != tGen || !tbuf.toString().equals(src)) {
+            render("You kept typing, so I left it as it was");
+            return;
+        }
+        tbuf.setLength(0);
+        tbuf.append(out.trim());
+        tChanged(0);
+        updateAutoShift();
+    }
+
     /** The message went out: it joins the chat's thread, and the buffer starts over. */
     private void tSent() {
         String said = tbuf.toString().trim(), sent = tOut.trim();
@@ -1891,12 +1982,81 @@ public class MurmurIME extends InputMethodService {
         Translate.chatOff = false;
         Translate.chatSend = false;
         if (chat != null && chat.app.isEmpty()) chat.app = appLabel(editorPkg);
+        chatLanguage(on);
         if (on) {
             String to = Translate.target(this);
             String d = (chat != null && !chat.app.isEmpty() ? chat.app : editorPkg) + " · "
                     + ChatLog.openLabel(editorPkg) + " · sends " + (to.isEmpty() ? "in " + Translate.mine(this) : "in " + to);
             if (!d.equals(Prefs.get(this, Prefs.DIAG_KEYBOARD, ""))) Prefs.sp(this).edit().putString(Prefs.DIAG_KEYBOARD, d).apply();
         }
+    }
+
+    /** The chat whose language was last set from memory (or remembered). */
+    private String langChatKey = "";
+
+    /**
+     * 2.1: each chat keeps the language he last sent in there. Opening a chat (or turning
+     * translate on in one) picks that language up, and it stays locked like any pick. Changing
+     * the language while in a chat remembers it for that chat. Chats he hasn't sent in yet start
+     * with the last language he used anywhere, as before.
+     */
+    private void chatLanguage(boolean on) {
+        // Turning translate off keeps which chat this is, so turning it back on in the
+        // same chat keeps whatever language he picked last, here or in the app.
+        if (!on) return;
+        if (!chatKnown()) { langChatKey = ""; return; }
+        String cur = Translate.theirsDefault(this);
+        ChatLog.Chat saved = ChatLog.get(this, chat.key);
+        String m = saved == null ? "" : saved.sendLang;
+        boolean usable = !m.isEmpty() && Translate.code(m) != null && !m.equals(Translate.mine(this));
+        if (!chat.key.equals(langChatKey)) {
+            langChatKey = chat.key;
+            if (usable && !m.equals(cur)) {
+                Prefs.sp(this).edit().putString(Prefs.TRANSLATE_TO, m).apply();
+                final String note = "⇄ Sending in " + m + " for " + chat.title() + ", like last time · hold ⇄ to change";
+                DIAG_LANG = note;
+                // Opening a box shows it once the box is set up; any other time, now.
+                langNote = note;
+                if (!startingInput && !recording && !busy && tbuf.length() == 0) {
+                    render(note);
+                    langNote = null;
+                }
+                if (tbuf.length() > 0) tChanged(0);
+                return;
+            }
+        }
+        if (!cur.equals(m)) ChatLog.rememberSendLang(this, chat, cur);
+    }
+
+    private String langNote;
+    private boolean startingInput;
+
+    /** The last language note, for tests. */
+    static String DIAG_LANG = "";
+
+    /** The other person's language when it isn't the one he sends in: offered on the purple bar. */
+    String langOffer(ChatLog.Chat ch) {
+        if (ch == null || !tmode() || !chatKnown() || !ch.key.equals(chat.key)) return null;
+        String their = ch.theirLang;
+        if (their == null || their.isEmpty() || Translate.code(their) == null) return null;
+        if (their.equals(Translate.mine(this)) || their.equals(Translate.theirsDefault(this))) return null;
+        if ((ch.key + "|" + their).equals(offerDismissed)) return null;
+        return their;
+    }
+
+    /** The offer he closed with ✕, so it doesn't come back for the same language. */
+    private String offerDismissed = "";
+
+    /** He tapped the offer: send in their language from now on, in this chat. */
+    void takeLangOffer(ChatLog.Chat ch, String lang) {
+        if (chatKnown()) {
+            ChatLog.rememberSendLang(this, chat, lang);
+            langChatKey = chat.key;
+        }
+        Prefs.sp(this).edit().putString(Prefs.TRANSLATE_TO, lang).apply();
+        if (tbuf.length() > 0) tChanged(0);
+        render("⇄ Now sending in " + lang + (ch != null ? " for " + ch.title() : "") + " · hold ⇄ to change");
+        paintTranslate();
     }
 
     /**
@@ -1925,6 +2085,7 @@ public class MurmurIME extends InputMethodService {
             return;
         }
         final ChatLog.Chat ch = texting ? stripChat() : null;
+        final String offer = langOffer(ch);
         boolean hasThread = ch != null && !ch.msgs.isEmpty()
                 && !(ch.key.equals(hiddenKey) && ch.at == hiddenAt);
         int bg;
@@ -1939,6 +2100,12 @@ public class MurmurIME extends InputMethodService {
             sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sb.length(), 0);
             sb.setSpan(new android.text.style.ForegroundColorSpan(sending ? 0xFFFFFFFF : 0xFFCBD5E1), 0, sb.length(), 0);
             sb.append('\n').append(thread(ch, incomingExpanded ? 20 : 2));
+            if (offer != null) {
+                int os = sb.length();
+                sb.append("\n↪ ").append(ch.title()).append(" writes in ").append(offer)
+                        .append(" · tap here to send in ").append(offer);
+                sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), os, sb.length(), 0);
+            }
             incomingBase = new android.text.SpannableStringBuilder(sb);
             CharSequence draft = tDraftLine();
             if (draft != null) sb.append('\n').append(draft);
@@ -1951,6 +2118,12 @@ public class MurmurIME extends InputMethodService {
             sb.append(chatKnown() ? " · " + chat.title() + "'s replies show here in " + Translate.mine(this)
                     : " · open a chat to see its replies here in " + Translate.mine(this))
                     .append(setupMissing() ? " · tap to finish setup" : "");
+            if (offer != null) {
+                int os = sb.length();
+                sb.append("\n↪ ").append(ch.title()).append(" writes in ").append(offer)
+                        .append(" · tap here to send in ").append(offer);
+                sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), os, sb.length(), 0);
+            }
             incomingBase = new android.text.SpannableStringBuilder(sb);
             CharSequence draft = tDraftLine();
             if (draft != null) sb.append('\n').append(draft);
@@ -1984,7 +2157,9 @@ public class MurmurIME extends InputMethodService {
         final boolean fThread = hasThread;
         final boolean fSending = sending;
         View.OnClickListener tap = v -> {
-            if (fSending && tbuf.length() > 0 && tDoneGen != tGen) {
+            if (offer != null) {
+                takeLangOffer(ch, offer);
+            } else if (fSending && tbuf.length() > 0 && tDoneGen != tGen) {
                 ui.removeCallbacks(tFlush);
                 tTranslate();
             } else if (fThread) {
@@ -2005,6 +2180,11 @@ public class MurmurIME extends InputMethodService {
         incomingText.setOnClickListener(tap);
         if (incomingOpen != null) incomingOpen.setOnClickListener(v -> openLive(ch == null ? null : ch.key));
         if (incomingClose != null) incomingClose.setOnClickListener(v -> {
+            if (offer != null) {
+                offerDismissed = ch.key + "|" + offer;
+                paintIncoming();
+                return;
+            }
             if (fThread && incomingExpanded) {
                 incomingExpanded = false;
             } else if (fThread) {
@@ -2181,6 +2361,10 @@ public class MurmurIME extends InputMethodService {
         final String key = Prefs.get(this, Prefs.API_KEY, "");
         if (key.isEmpty()) {
             render("Add your API key in the Murmur app first");
+            return;
+        }
+        if (tmode() && tbuf.length() > 0) {
+            tRewrite(instruction, label, key);
             return;
         }
         String target = null;
@@ -2682,7 +2866,7 @@ public class MurmurIME extends InputMethodService {
     private Corrector.Result cached;
     private boolean compactChip;
 
-    private static final int CELL_WORD = 0, CELL_KEEP = 1, CELL_SWIPE = 2, CELL_SHORTCUT = 3;
+    private static final int CELL_WORD = 0, CELL_KEEP = 1, CELL_SWIPE = 2, CELL_SHORTCUT = 3, CELL_CLIP = 4;
     private final TextView[] cells = new TextView[3];
     private final String[] cellWord = new String[3];
     private final int[] cellKind = new int[3];
@@ -2693,6 +2877,7 @@ public class MurmurIME extends InputMethodService {
         keys.setListener(new KeyboardView.Listener() {
             @Override
             public void onKeyChar(String s) {
+                pendingTap = keys.lastTap();
                 onTypedChar(s);
             }
 
@@ -2873,7 +3058,10 @@ public class MurmurIME extends InputMethodService {
 
     private void onTypedChar(String s) {
         InputConnection ic = getCurrentInputConnection();
+        float[] tap = pendingTap;
+        pendingTap = null;
         if (ic == null) return;
+        noteTap(s, tap);
         if (tmode()) {
             lastCharShift = shift;
             tAppend(s, ".,!?;:".contains(s));
@@ -2927,6 +3115,53 @@ public class MurmurIME extends InputMethodService {
         }
         lastInsertedLength = 0;
         afterKey(letter);
+    }
+
+    // ---- where each letter was tapped, for fixes that know a near miss -------------------
+
+    /** The tap the key that's being typed came from (set by the keys just before onTypedChar). */
+    private float[] pendingTap;
+    /** The letters typed since the last space or symbol, and where each one was tapped. */
+    private final StringBuilder tapChars = new StringBuilder();
+    private final java.util.ArrayList<float[]> tapPts = new java.util.ArrayList<>();
+
+    private void noteTap(String s, float[] tap) {
+        if (s.length() == 1 && s.charAt(0) >= 'A' && Character.toLowerCase(s.charAt(0)) >= 'a'
+                && Character.toLowerCase(s.charAt(0)) <= 'z') {
+            tapChars.append(Character.toLowerCase(s.charAt(0)));
+            tapPts.add(tap);
+            if (tapChars.length() > 40) {
+                tapChars.deleteCharAt(0);
+                tapPts.remove(0);
+            }
+        } else {
+            clearTaps();
+        }
+    }
+
+    private void clearTaps() {
+        tapChars.setLength(0);
+        tapPts.clear();
+    }
+
+    private void popTap() {
+        int n = tapChars.length();
+        if (n == 0) return;
+        tapChars.setLength(n - 1);
+        tapPts.remove(n - 1);
+    }
+
+    /** Where each letter of {@code typed} was tapped, or null when that isn't known for all of it. */
+    float[][] tapsFor(String typed) {
+        String key = Dict.keyOf(typed);
+        if (key.isEmpty() || key.length() != typed.length() || !tapChars.toString().endsWith(key)) return null;
+        float[][] out = new float[key.length()][];
+        int from = tapPts.size() - key.length();
+        for (int i = 0; i < out.length; i++) {
+            out[i] = tapPts.get(from + i);
+            if (out[i] == null) return null;
+        }
+        return out;
     }
 
     /** Held ".": the "." it typed becomes ".com", in any box. */
@@ -3009,7 +3244,7 @@ public class MurmurIME extends InputMethodService {
         boolean code = shortcuts.containsKey(Clips.codeOf(typed));
         if (correct && autocorrectOn && !wordSwiped && !wordNoCorrect && !keep && !code && dict != null) {
             Corrector.Result r = resultFor(typed);
-            if (r != null && r.autocorrect != null) out = r.autocorrect;
+            if (r != null && r.sure != null && capsOk(ic, typed)) out = r.sure;
         }
         if (keep) {
             Learn.keepTypedWord(this, typed);
@@ -3030,15 +3265,31 @@ public class MurmurIME extends InputMethodService {
         hideStrip();
     }
 
+    /**
+     * A capital letter mid-sentence is usually a name, so it's left alone. One at the start of
+     * a sentence (or of the box) is just the sentence starting.
+     */
+    private boolean capsOk(InputConnection ic, String typed) {
+        if (typed.isEmpty() || !Character.isUpperCase(typed.charAt(0))) return true;
+        if (ic == null) return false;
+        CharSequence b = ic.getTextBeforeCursor(typed.length() + 40, 0);
+        if (b == null) return false;
+        String t = b.toString();
+        if (t.endsWith(typed)) t = t.substring(0, t.length() - typed.length());
+        t = t.replaceAll("[ \t]+$", "");
+        return t.isEmpty() || t.endsWith(".") || t.endsWith("!") || t.endsWith("?") || t.endsWith("\n");
+    }
+
     private Corrector.Result resultFor(String typed) {
         if (typed.equals(cachedFor) && cached != null) return cached;
         Dict d = dict;
-        return d == null ? null : Corrector.suggest(d, typed, 3);
+        return d == null ? null : Corrector.suggest(d, typed, 3, tapsFor(typed));
     }
 
     private void onDeleteKey() {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
+        popTap();
         autoSpace = false;
         if (word.length() > 0 && !wordShowing(ic)) {
             // The app dropped or kept the word without telling us: delete like normal text.
@@ -3258,8 +3509,9 @@ public class MurmurIME extends InputMethodService {
         final Dict d = dict;
         if (d == null) return;
         final int seq = ++suggestSeq;
+        final float[][] taps = tapsFor(typed);
         typing.execute(() -> {
-            final Corrector.Result r = Corrector.suggest(d, typed, 3);
+            final Corrector.Result r = Corrector.suggest(d, typed, 3, taps);
             ui.post(() -> {
                 if (seq != suggestSeq || !typed.equals(typedWord())) return;
                 cachedFor = typed;
@@ -3280,14 +3532,16 @@ public class MurmurIME extends InputMethodService {
                 if (n >= 3) break;
                 setCell(n++, s, s, CELL_WORD, false);
             }
-        } else if (r.autocorrect != null && autocorrectOn && !tmode() && !wordNoCorrect && !typed.equals(keepAsTyped)) {
+        } else if (r.sure != null && autocorrectOn && !tmode() && !wordNoCorrect && !typed.equals(keepAsTyped)
+                && capsOk(getCurrentInputConnection(), typed)) {
+            // The fix a space will make, in bold; "typed" keeps the word as it is.
             setCell(n++, "“" + typed + "”", typed, CELL_KEEP, false);
-            setCell(n++, r.autocorrect, r.autocorrect, CELL_WORD, true);
+            setCell(n++, r.sure, r.sure, CELL_WORD, true);
             for (String s : r.suggestions) {
                 if (n >= 3) break;
-                if (!s.equals(r.autocorrect)) setCell(n++, s, s, CELL_WORD, false);
+                if (!s.equals(r.sure)) setCell(n++, s, s, CELL_WORD, false);
             }
-        } else if (!autocorrectOn || tmode()) {
+        } else if (true) {
             // Suggestions only: what you typed, then the best fix, then one more. Nothing changes
             // unless you tap one.
             java.util.LinkedHashSet<String> offer = new java.util.LinkedHashSet<>();
@@ -3396,6 +3650,18 @@ public class MurmurIME extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         if (w == null || ic == null) return;
         if (keys != null) keys.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        if (cellKind[i] == CELL_CLIP) {
+            hideStrip();
+            if (tmode()) {
+                tAppend(w, true);
+                updateAutoShift();
+            } else {
+                finishWord(false);
+                ic.commitText(w, 1);
+                lastInsertedLength = 0;
+            }
+            return;
+        }
         if (tmode() && tbuf.length() > 0 && cellKind[i] != CELL_SWIPE) {
             tPick(w, cellKind[i]);
             return;
@@ -3470,6 +3736,7 @@ public class MurmurIME extends InputMethodService {
         long now = SystemClock.uptimeMillis();
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
+        clearTaps();
         if (tmode()) {
             // Double-tap space for ". " here too.
             int n = tbuf.length();
