@@ -27,6 +27,12 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 2.0.1
+
+- **Space bar back under the thumb:** in chats the bottom row is ?123, 🌐, comma, space, period and ⏎ again, with a wider space bar. 1.9.6 put ".com" on every bottom row, which pushed the space bar left.
+- **.com where it's needed:** email and web-address boxes show a ".com" key, with "@" or "/" in place of the comma. Anywhere else, hold "." to get ".com".
+- **Word suggestions with translate on:** the top bar shows suggestions for the word you're typing, in your language, like it does with translate off. Tapping one puts it in what you're writing, and the box gets the new translation. What you're writing and whether it's in the box now show as the last line of the purple bar.
+
 ## What's new in 2.0
 
 Translate is rebuilt around one switch, with no guessing anywhere.

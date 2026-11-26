@@ -45,6 +45,9 @@ public class KeyboardView extends View {
 
         void onKeyPicker();
 
+        /** Held the "." key: it becomes ".com". */
+        void onKeyDotCom();
+
         /** A swipe began on the letter whose tap was just typed; take that letter back. */
         void onSwipeStart();
 
@@ -112,6 +115,8 @@ public class KeyboardView extends View {
 
     private Listener listener;
     private boolean symbols;
+    /** The box takes an address: 0 no, 1 an email address, 2 a web address. */
+    private int address;
     private int shift = SHIFT_OFF;
     private boolean swipeOn = true, hapticsOn = true, soundOn;
     private AudioManager audio;
@@ -148,11 +153,14 @@ public class KeyboardView extends View {
             for (int i = 0; i < touches.size(); i++) {
                 Touch t = touches.valueAt(i);
                 if (t.longFired || t.upActionDone || t.key == null) continue;
-                if (t.key.kind != SPACE && t.key.kind != SWITCH) continue;
+                boolean dot = isDot(t.key);
+                if (t.key.kind != SPACE && t.key.kind != SWITCH && !dot) continue;
                 if (SystemClock.uptimeMillis() - t.downAt < LONG_MS - 20) continue;
                 t.longFired = true;
                 buzz();
-                if (listener != null) listener.onKeyPicker();
+                if (listener == null) continue;
+                if (dot) listener.onKeyDotCom();
+                else listener.onKeyPicker();
             }
         }
     };
@@ -280,6 +288,24 @@ public class KeyboardView extends View {
         invalidate();
     }
 
+    /**
+     * Email and web-address boxes get ".com" on the bottom row and "@" or "/" in place of ",".
+     * Everywhere else the bottom row has no ".com" key (hold "." for it), so the space bar stays
+     * wide and where the thumb expects it. 1.9.6 put ".com" on every bottom row, which pushed the
+     * space bar left and made it narrower.
+     */
+    void setAddress(int kind) {
+        if (kind == address) return;
+        address = kind;
+        buildKeys();
+        layoutKeys();
+        invalidate();
+    }
+
+    int address() {
+        return address;
+    }
+
     boolean symbols() {
         return symbols;
     }
@@ -304,11 +330,14 @@ public class KeyboardView extends View {
         add(3, new Key(DEL, null, "⌫", 1.5f, false));
         add(4, new Key(MODE, null, symbols ? "ABC" : "?123", 1.4f, true));
         add(4, new Key(SWITCH, null, "🌐", 1f, true));
-        add(4, new Key(CHAR, ",", ",", 1f, false));
-        add(4, new Key(SPACE, " ", "space", 3.2f, true));
+        String c = address == 1 ? "@" : address == 2 ? "/" : ",";
+        add(4, new Key(CHAR, c, c, 1f, false));
+        // In a chat the space bar takes the room: left edge at about a third of the width, centre
+        // a little right of the middle, under the thumb.
+        add(4, new Key(SPACE, " ", "space", address == 0 ? 3.6f : 3.2f, true));
         add(4, new Key(CHAR, ".", ".", 1f, false));
-        // One tap for the end of an email or web address.
-        add(4, new Key(CHAR, ".com", ".com", 1.3f, true));
+        // One tap for the end of an email or web address, in the boxes that take one.
+        if (address != 0) add(4, new Key(CHAR, ".com", ".com", 1.3f, true));
         add(4, new Key(ENTER, null, "⏎", 1.5f, false));
     }
 
@@ -413,6 +442,12 @@ public class KeyboardView extends View {
         Paint.FontMetrics fm = textPaint.getFontMetrics();
         float y = k.face.centerY() - (fm.ascent + fm.descent) / 2f;
         c.drawText(label, k.face.centerX(), y, textPaint);
+        if (isDot(k) && address == 0) {
+            // A small ".com" at the top says what holding "." does.
+            textPaint.setTextSize(9 * density);
+            textPaint.setColor(colorDim);
+            c.drawText(".com", k.face.centerX(), k.face.top + 11 * density, textPaint);
+        }
     }
 
     private String labelOf(Key k) {
@@ -611,6 +646,10 @@ public class KeyboardView extends View {
         return true;
     }
 
+    private static boolean isDot(Key k) {
+        return k != null && k.kind == CHAR && ".".equals(k.out) && k.row == 4;
+    }
+
     private static boolean isLetter(Key k) {
         return k.kind == CHAR && k.out != null && k.out.length() == 1
                 && k.out.charAt(0) >= 'a' && k.out.charAt(0) <= 'z';
@@ -625,6 +664,10 @@ public class KeyboardView extends View {
                 preview = k;
                 removeCallbacks(hidePreview);
                 if (listener != null) listener.onKeyChar(labelOf(k));
+                if (isDot(k)) {
+                    removeCallbacks(longPress);
+                    postDelayed(longPress, LONG_MS);
+                }
                 break;
             case DEL:
                 if (listener != null) listener.onKeyDelete();

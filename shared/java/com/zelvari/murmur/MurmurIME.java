@@ -1618,12 +1618,15 @@ public class MurmurIME extends InputMethodService {
         tbuf.delete(start, end);
         tChanged(tbuf.length() == 0 ? 0 : T_PAUSE_MS);
         updateAutoShift();
+        scheduleSuggestions();
     }
 
     /** What he said, added to what he typed, and translated right away. */
     private void tDictated(String text) {
         if (text == null || text.trim().isEmpty()) return;
         boolean space = tbuf.length() > 0 && !Character.isWhitespace(tbuf.charAt(tbuf.length() - 1));
+        ++suggestSeq;
+        hideStrip();
         tAppend((space ? " " : "") + text.trim(), true);
         ui.removeCallbacks(tFlush);
         tTranslate();
@@ -1799,19 +1802,47 @@ public class MurmurIME extends InputMethodService {
     }
 
     /** The line above the keys: what he wrote, and whether the box has it in his language pick yet. */
+    /**
+     * What he's writing and where its translation stands. The words go on the purple bar, as the
+     * last line under the chat, so the top bar stays free for word suggestions while he types
+     * (2.0 used the top bar for this, so no suggestions showed with translate on).
+     */
     private void tShow() {
         if (!tmode() || recording || busy) return;
+        paintDraft();
         String to = Translate.theirsDefault(this);
-        if (tbuf.length() == 0) {
-            render("⇄ Type or talk in " + Translate.mine(this) + " · it goes in the box in " + to);
+        String msg = tbuf.length() == 0 ? "⇄ Type or talk in " + Translate.mine(this) + " · it goes in the box in " + to
+                : tFailed != null ? "⚠ Not translated: " + tFailed + " · tap ⏎ to try again"
+                : tDoneGen == tGen ? "✓ In the box in " + to
+                : "⏳ Translating to " + to + "…";
+        // Mid-word the suggestions stay up; the state shows again after the word.
+        if (suggestions != null && suggestions.getVisibility() == View.VISIBLE && !tWord().isEmpty()) {
+            if (status != null) status.setText(msg);
             return;
         }
-        String t = tbuf.toString();
-        if (t.length() > 70) t = "…" + t.substring(t.length() - 70);
-        String mark = tFailed != null ? "  ⚠ Not translated: " + tFailed + " · tap ⏎ to try again"
-                : tDoneGen == tGen ? "  ✓ " + Translate.code(to) + " in the box"
-                : "  ⏳ " + Translate.code(to) + "…";
-        render("✍ " + t + mark);
+        render(msg);
+    }
+
+    /** "✍ what he's writing  ✓ ES" for the purple bar, or null when he isn't writing. */
+    CharSequence tDraftLine() {
+        String[] d = tDraft();
+        if (d == null) return null;
+        android.text.SpannableStringBuilder b = new android.text.SpannableStringBuilder(d[0]);
+        int s = b.length();
+        b.append(d[1]);
+        b.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), s, b.length(), 0);
+        return b;
+    }
+
+    /** The purple bar's writing line in two parts: "✍ what he wrote  " and its mark, "✓ ES". */
+    String[] tDraft() {
+        if (!tmode() || tbuf.length() == 0) return null;
+        String t = tbuf.toString().trim();
+        if (t.isEmpty()) return null;
+        if (t.length() > 90) t = "…" + t.substring(t.length() - 90);
+        String code = Translate.code(Translate.theirsDefault(this));
+        String mark = tFailed != null ? "⚠ not sent in " + code : tDoneGen == tGen ? "✓ " + code : "⏳ " + code;
+        return new String[]{"✍ " + t + "  ", mark};
     }
 
     /** True when the open-chat reader is sure which chat he's typing in. */
@@ -1908,6 +1939,9 @@ public class MurmurIME extends InputMethodService {
             sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sb.length(), 0);
             sb.setSpan(new android.text.style.ForegroundColorSpan(sending ? 0xFFFFFFFF : 0xFFCBD5E1), 0, sb.length(), 0);
             sb.append('\n').append(thread(ch, incomingExpanded ? 20 : 2));
+            incomingBase = new android.text.SpannableStringBuilder(sb);
+            CharSequence draft = tDraftLine();
+            if (draft != null) sb.append('\n').append(draft);
             text = sb;
             bg = sending ? 0xFF6D28D9 : 0xFF334155;
             closeLabel = incomingExpanded ? "▴" : "✕";
@@ -1917,6 +1951,9 @@ public class MurmurIME extends InputMethodService {
             sb.append(chatKnown() ? " · " + chat.title() + "'s replies show here in " + Translate.mine(this)
                     : " · open a chat to see its replies here in " + Translate.mine(this))
                     .append(setupMissing() ? " · tap to finish setup" : "");
+            incomingBase = new android.text.SpannableStringBuilder(sb);
+            CharSequence draft = tDraftLine();
+            if (draft != null) sb.append('\n').append(draft);
             text = sb;
             bg = sending ? 0xFF6D28D9 : 0xFF334155;
             closeLabel = "Off";
@@ -1924,6 +1961,7 @@ public class MurmurIME extends InputMethodService {
             text = "";
             bg = 0xFF075985;
             closeLabel = "Off";
+            incomingBase = null;
         }
         incomingText.setText(text);
         // Never cut short: the newest message is the last line, and the bar always scrolls to it.
@@ -1979,6 +2017,23 @@ public class MurmurIME extends InputMethodService {
             }
             paintTranslate();
         });
+    }
+
+    /** The purple bar as paintIncoming last drew it, without the line he's writing. */
+    private CharSequence incomingBase;
+
+    /** Puts what he's writing under the purple bar's chat, without reading the chat again. */
+    private void paintDraft() {
+        if (incomingBase == null || incomingText == null || incomingBar == null
+                || incomingBar.getVisibility() != View.VISIBLE) {
+            paintIncoming();
+            return;
+        }
+        android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(incomingBase);
+        CharSequence draft = tDraftLine();
+        if (draft != null) sb.append('\n').append(draft);
+        incomingText.setText(sb);
+        if (incomingScroll != null) incomingScroll.post(() -> incomingScroll.fullScroll(View.FOCUS_DOWN));
     }
 
     /** The last few messages of a chat, theirs in his language and his own as he said them. */
@@ -2690,6 +2745,11 @@ public class MurmurIME extends InputMethodService {
             }
 
             @Override
+            public void onKeyDotCom() {
+                dotCom();
+            }
+
+            @Override
             public void onKeyPicker() {
                 InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
                 if (imm != null) imm.showInputMethodPicker();
@@ -2786,6 +2846,9 @@ public class MurmurIME extends InputMethodService {
         suggestOn = smartField && (type & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
         autocorrectOn = suggestOn && Prefs.flag(this, Prefs.AUTO_REPLACE, false);
         if (keys != null) {
+            boolean email = var == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                    || var == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS;
+            keys.setAddress(cls != InputType.TYPE_CLASS_TEXT ? 0 : email ? 1 : var == InputType.TYPE_TEXT_VARIATION_URI ? 2 : 0);
             // Swipe is off while what he types goes out translated: words go in the buffer one key at a time.
             boolean own = info != null && getPackageName().equals(info.packageName);
             boolean translating = Translate.texting(this) && !searchField && !own;
@@ -2864,6 +2927,58 @@ public class MurmurIME extends InputMethodService {
         }
         lastInsertedLength = 0;
         afterKey(letter);
+    }
+
+    /** Held ".": the "." it typed becomes ".com", in any box. */
+    private void dotCom() {
+        if (tmode()) {
+            int n = tbuf.length();
+            if (n > 0 && tbuf.charAt(n - 1) == '.') tAppend("com", true);
+            else tAppend(".com", true);
+            updateAutoShift();
+            return;
+        }
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        CharSequence before = ic.getTextBeforeCursor(2, 0);
+        String b = before == null ? "" : before.toString();
+        if (b.endsWith(". ")) {
+            // "word ." had moved to "word. ": take the space back out.
+            ic.beginBatchEdit();
+            ic.deleteSurroundingText(1, 0);
+            ic.commitText("com", 1);
+            ic.endBatchEdit();
+        } else if (b.endsWith(".")) {
+            ic.commitText("com", 1);
+        } else {
+            onTypedChar(".com");
+            return;
+        }
+        autoSpace = false;
+        lastInsertedLength = 0;
+        hideStrip();
+        if (shift == SHIFT_ONCE && keys != null) {
+            shift = SHIFT_OFF;
+            keys.setShift(shift);
+        }
+    }
+
+    /** The word being typed at the end of the translate buffer ("" after a space or a stop). */
+    String tWord() {
+        int i = tbuf.length();
+        while (i > 0) {
+            char c = tbuf.charAt(i - 1);
+            if (Character.isLetter(c) || (c == '\'' && i < tbuf.length())) i--;
+            else break;
+        }
+        // An apostrophe can't start a word.
+        while (i < tbuf.length() && tbuf.charAt(i) == '\'') i++;
+        return tbuf.substring(i);
+    }
+
+    /** The word the suggestions are for: in the box, or in the translate buffer while translating. */
+    private String typedWord() {
+        return tmode() ? tWord() : word.toString();
     }
 
     private void afterKey(boolean letter) {
@@ -3129,18 +3244,24 @@ public class MurmurIME extends InputMethodService {
 
     private void scheduleSuggestions() {
         if (suggestions == null) return;
-        if (!suggestOn || word.length() == 0 || wordSwiped) {
-            if (!wordSwiped) hideStrip();
+        // While translating, the words come from the buffer (his own language) and swipe is off.
+        boolean t = tmode();
+        final String typed = typedWord();
+        if (!suggestOn || typed.isEmpty() || (!t && wordSwiped)) {
+            if (t || !wordSwiped) {
+                ++suggestSeq;
+                hideStrip();
+                if (t) tShow();
+            }
             return;
         }
         final Dict d = dict;
         if (d == null) return;
-        final String typed = word.toString();
         final int seq = ++suggestSeq;
         typing.execute(() -> {
             final Corrector.Result r = Corrector.suggest(d, typed, 3);
             ui.post(() -> {
-                if (seq != suggestSeq || !typed.equals(word.toString())) return;
+                if (seq != suggestSeq || !typed.equals(typedWord())) return;
                 cachedFor = typed;
                 cached = r;
                 showTypedStrip(typed, r);
@@ -3159,14 +3280,14 @@ public class MurmurIME extends InputMethodService {
                 if (n >= 3) break;
                 setCell(n++, s, s, CELL_WORD, false);
             }
-        } else if (r.autocorrect != null && autocorrectOn && !wordNoCorrect && !typed.equals(keepAsTyped)) {
+        } else if (r.autocorrect != null && autocorrectOn && !tmode() && !wordNoCorrect && !typed.equals(keepAsTyped)) {
             setCell(n++, "“" + typed + "”", typed, CELL_KEEP, false);
             setCell(n++, r.autocorrect, r.autocorrect, CELL_WORD, true);
             for (String s : r.suggestions) {
                 if (n >= 3) break;
                 if (!s.equals(r.autocorrect)) setCell(n++, s, s, CELL_WORD, false);
             }
-        } else if (!autocorrectOn) {
+        } else if (!autocorrectOn || tmode()) {
             // Suggestions only: what you typed, then the best fix, then one more. Nothing changes
             // unless you tap one.
             java.util.LinkedHashSet<String> offer = new java.util.LinkedHashSet<>();
@@ -3275,6 +3396,10 @@ public class MurmurIME extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         if (w == null || ic == null) return;
         if (keys != null) keys.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+        if (tmode() && tbuf.length() > 0 && cellKind[i] != CELL_SWIPE) {
+            tPick(w, cellKind[i]);
+            return;
+        }
         if (cellKind[i] == CELL_SWIPE && wordSwiped) {
             // Swap in the other word and keep it open, like a fresh swipe.
             int at = swipeAlts.indexOf(w);
@@ -3310,6 +3435,22 @@ public class MurmurIME extends InputMethodService {
         updateAutoShift();
     }
 
+    /** A picked suggestion takes the place of the word being typed in the translate buffer. */
+    void tPick(String w, int kind) {
+        String typedNow = tWord();
+        if (kind == CELL_WORD && !typedNow.isEmpty() && !typedNow.equals(w)) Learn.rememberPick(this, typedNow, w);
+        tbuf.setLength(tbuf.length() - typedNow.length());
+        tbuf.append(w).append(' ');
+        if (kind == CELL_KEEP) {
+            Learn.keepTypedWord(this, w);
+            refreshUserWords();
+        }
+        ++suggestSeq;
+        hideStrip();
+        tChanged(T_WORD_MS);
+        updateAutoShift();
+    }
+
     private void onShift() {
         long now = SystemClock.uptimeMillis();
         if (shift == SHIFT_LOCK) {
@@ -3342,6 +3483,7 @@ public class MurmurIME extends InputMethodService {
                 lastSpaceTap = now;
             }
             updateAutoShift();
+            scheduleSuggestions();
             return;
         }
         boolean hadWord = word.length() > 0;

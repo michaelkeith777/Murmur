@@ -10,8 +10,8 @@ android {
         applicationId 'com.zelvari.murmur'
         minSdk 26
         targetSdk 34
-        versionCode 27
-        versionName '2.0'
+        versionCode 28
+        versionName '2.0.1'
     }
 
     // The keyboard, AI client and settings keys are shared by the phone and watch apps.
