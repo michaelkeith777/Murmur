@@ -27,6 +27,10 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.8
+
+- **The stop button stays on the cover screen.** On a narrow screen like the Fold's cover, the mic sits at the end of the top bar and turns into the stop button while you talk. 1.9.6's 👤 button and paste chip pushed it past the right edge. Now, while you talk, the bar keeps only Cancel, undo and stop; 👤 lives under 📋 (the My info tab) on the cover screen; and the paste chip steps aside whenever it would crowd the mic.
+
 ## What's new in 1.9.7
 
 - **Replies in the open chat come back in English.** After he'd sent "Hola", Murmur took any reply that started the same way ("Hola, bien, ¿y tú?", "Hola cómo estás") for his own message and skipped it. Now only his actual messages are skipped.

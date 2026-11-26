@@ -1118,9 +1118,14 @@ public class MurmurIME extends InputMethodService {
             pasteChip.setVisibility(View.GONE);
             return;
         }
+        if (Boolean.TRUE.equals(narrow) && (recording || busy || chipNoRoom)) {
+            pasteChip.setVisibility(View.GONE);
+            return;
+        }
         pasteChip.setText(label);
         pasteChip.setBackground(keyBg(toneColor));
         pasteChip.setVisibility(View.VISIBLE);
+        if (statusRow != null) statusRow.post(this::keepMicOnScreen);
     }
 
     private void pasteFromChip(boolean whole) {
@@ -1190,6 +1195,7 @@ public class MurmurIME extends InputMethodService {
     /** Below this width the big mic column moves into the top bar so the letters get the room. */
     private static final int NARROW_DP = 560;
     private Boolean narrow;
+    private int lastBarWidth;
 
     /** Picks the layout from the keyboard's real width, so it follows folding and unfolding. */
     private void fitWidth(int widthPx) {
@@ -1202,6 +1208,10 @@ public class MurmurIME extends InputMethodService {
             keys.setSizing(true, pct / 100f, Prefs.flag(this, Prefs.NARROW_NUMBERS, true), screenH);
         } else {
             keys.setSizing(false, 1f, true, 0);
+        }
+        if (lastBarWidth != widthPx) {
+            lastBarWidth = widthPx;
+            chipNoRoom = false;
         }
         if (narrow != null && narrow == n) return;
         if (narrow == null && !n) {
@@ -1238,6 +1248,8 @@ public class MurmurIME extends InputMethodService {
             setButtonWidth(rewriteBtn, 36);
             setButtonWidth(translateBtn, 38);
             setButtonWidth(toolsBtn, 36);
+            if (savedBtn != null) savedBtn.setVisibility(View.GONE);
+            if (pasteChip != null) pasteChip.setMaxWidth(dp(110));
             if (toneChip != null) toneChip.setPadding(dp(8), 0, dp(8), 0);
             paintToneChip(false);
         } else {
@@ -1253,12 +1265,45 @@ public class MurmurIME extends InputMethodService {
             setButtonWidth(rewriteBtn, 42);
             setButtonWidth(translateBtn, 42);
             setButtonWidth(toolsBtn, 42);
+            setButtonWidth(savedBtn, 38);
+            if (savedBtn != null) savedBtn.setVisibility(View.VISIBLE);
+            if (pasteChip != null) pasteChip.setMaxWidth(dp(170));
             if (toneChip != null) toneChip.setPadding(dp(12), 0, dp(12), 0);
             paintToneChip(false);
         }
     }
 
     private int rootPadStart = -1, rootPadEnd = -1;
+
+    /**
+     * On a narrow screen the mic, which turns into the stop button while he talks, sits at the
+     * end of the top bar. 1.9.6 added 👤 and the paste chip to that bar, and on the Fold's cover
+     * screen they pushed the stop button past the right edge. While he talks (or it's working)
+     * the bar keeps only Cancel, undo and stop; at any time, if the stop button would still be
+     * cut off, the paste chip goes first, then 👤, ✍️, 📋 and 文A.
+     */
+    private void fitBar() {
+        if (!Boolean.TRUE.equals(narrow)) return;
+        if (recording || busy) {
+            setExtrasShown(false);
+            if (pasteChip != null) pasteChip.setVisibility(View.GONE);
+        }
+        if (statusRow != null) statusRow.post(this::keepMicOnScreen);
+    }
+
+    /** The paste chip didn't fit beside the mic on this narrow screen; 📋 still pastes. */
+    private boolean chipNoRoom;
+
+    private void keepMicOnScreen() {
+        if (mic == null || statusRow == null || !Boolean.TRUE.equals(narrow)) return;
+        if (mic.getParent() != statusRow) return;
+        int w = statusRow.getWidth() - statusRow.getPaddingRight();
+        if (w <= 0 || mic.getRight() <= w) return;
+        if (pasteChip != null && pasteChip.getVisibility() == View.VISIBLE) {
+            chipNoRoom = true;
+            pasteChip.setVisibility(View.GONE);
+        }
+    }
 
     private static void detach(View v) {
         if (v.getParent() instanceof ViewGroup) ((ViewGroup) v.getParent()).removeView(v);
@@ -2934,10 +2979,14 @@ public class MurmurIME extends InputMethodService {
     }
 
     private void setExtrasShown(boolean shown) {
+        if (shown && Boolean.TRUE.equals(narrow) && (recording || busy)) shown = false;
         int v = shown ? View.VISIBLE : View.GONE;
-        for (View b : new View[]{rewriteBtn, toolsBtn, translateBtn, savedBtn}) {
+        for (View b : new View[]{rewriteBtn, toolsBtn, translateBtn}) {
             if (b != null && b.getVisibility() != v) b.setVisibility(v);
         }
+        // The cover screen has no room for 👤: My info is the first tab under 📋 there.
+        int sv = shown && !Boolean.TRUE.equals(narrow) ? View.VISIBLE : View.GONE;
+        if (savedBtn != null && savedBtn.getVisibility() != sv) savedBtn.setVisibility(sv);
     }
 
     private void hideStrip() {
@@ -3259,6 +3308,7 @@ public class MurmurIME extends InputMethodService {
         hideStrip();
         status.setText(message);
         cancel.setVisibility(recording || busy ? View.VISIBLE : View.GONE);
+        fitBar();
         if (!recording) {
             mic.animate().cancel();
             mic.setScaleX(1f);
