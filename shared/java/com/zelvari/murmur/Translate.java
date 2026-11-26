@@ -58,11 +58,20 @@ final class Translate {
         Prefs.sp(c).edit().putString(Prefs.SENT_RECENT, b.toString()).apply();
     }
 
+    /**
+     * True when a message is one he just sent (it shows up in some notifications and on screen).
+     * A long message cut short in a notification still counts. 1.9.6 and before also counted any
+     * reply that started with a short message of his, so after he sent "Hola", a reply like
+     * "Hola, bien, ¿y tú?" was taken for his own and never translated.
+     */
     static boolean wasSent(Context c, String text) {
         String n = norm(text);
         if (n.isEmpty()) return false;
         for (String l : Prefs.get(c, Prefs.SENT_RECENT, "").split("\n")) {
-            if (!l.isEmpty() && (l.equals(n) || (n.length() > 12 && (l.startsWith(n) || n.startsWith(l))))) return true;
+            if (l.isEmpty()) continue;
+            if (l.equals(n)) return true;
+            String shorter = l.length() < n.length() ? l : n, longer = shorter == l ? n : l;
+            if (shorter.length() >= 20 && longer.startsWith(shorter.replaceAll("[….]+$", ""))) return true;
         }
         return false;
     }

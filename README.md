@@ -27,6 +27,13 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 1.9.7
+
+- **Replies in the open chat come back in English.** After he'd sent "Hola", Murmur took any reply that started the same way ("Hola, bien, ¿y tú?", "Hola cómo estás") for his own message and skipped it. Now only his actual messages are skipped.
+- **The other person's newest messages are always checked.** Every look at the open chat translates their messages below his last one that aren't in the bar yet, so a reply is caught even if the chat updated in a way Murmur didn't see. While the keyboard is up, it also looks again every few seconds.
+- **Messenger and the Messages app** are now read on screen too, not only by notification.
+- **Open chat** on the Live Translate screen says what Murmur reads in the chat you have open: how many messages, how many are theirs and yours, and their newest one.
+
 ## What's new in 1.9.6
 
 - **Every reply shows in English.** When the translator left a short or mixed Spanish reply as it was ("Sí, mañana", "ok amor"), Murmur now asks again so it comes back in English. Replies already in English still show in the bar, so every message from the other person is there.

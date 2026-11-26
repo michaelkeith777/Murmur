@@ -6,6 +6,6 @@
     android:accessibilityFlags="flagReportViewIds"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="200"
-    android:packageNames="com.whatsapp,com.whatsapp.w4b,com.google.android.apps.messaging,com.samsung.android.messaging,org.telegram.messenger"
+    android:packageNames="com.whatsapp,com.whatsapp.w4b,com.google.android.apps.messaging,com.samsung.android.messaging,com.android.mms,org.telegram.messenger,com.facebook.orca"
     android:description="@string/chat_reader_description"
     android:settingsActivity="com.zelvari.murmur.MainActivity" />

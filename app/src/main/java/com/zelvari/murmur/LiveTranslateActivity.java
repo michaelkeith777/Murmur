@@ -302,7 +302,7 @@ public class LiveTranslateActivity extends Activity {
         box.addView(line((notes ? "✓ " : "✗ ") + "Closed chats: " + (notes ? "reading message notifications"
                 : "off, so replies to chats you don't have open aren't read"), notes ? 0xFF22C55E : 0xFFF59E0B, 13));
         String reading = Prefs.get(this, Prefs.DIAG_READING, "");
-        if (!reading.isEmpty()) box.addView(line("Last chat opened: " + reading, dim, 12));
+        if (!reading.isEmpty()) box.addView(line("Open chat: " + reading, dim, 12));
         String seen = Prefs.get(this, Prefs.DIAG_SEEN, "");
         box.addView(line(seen.isEmpty() ? "No reply caught yet" : "Last reply caught: " + seen, dim, 12));
         String kb = Prefs.get(this, Prefs.DIAG_KEYBOARD, "");
