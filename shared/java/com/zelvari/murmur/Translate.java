@@ -17,11 +17,74 @@ final class Translate {
 
     /** The language dictation is translated into right now, or "" when translate is off. */
     static String target(Context c) {
-        // Live Translate: one switch (⇄) that stays exactly as he set it, in every chat. 1.9 tried
-        // to switch by itself per chat, and reading which chat is open wasn't reliable enough.
-        if (texting(c)) return sending(c) ? theirsDefault(c) : "";
-        return Prefs.flag(c, Prefs.TRANSLATE_ON, false) ? last(c) : "";
+        // 2.0: one switch, and nothing else decides. On: everything he sends goes out in the
+        // language he picked and every reply shows in his. Off: plain typing. Up to 1.9.8 a second
+        // switch (send in their language or not), the older speak-to-translate switch and each
+        // chat's own setting could all change it, so messages went out one way or the other.
+        return texting(c) ? theirsDefault(c) : "";
     }
+
+    /** Languages he can send in: every one but his own. */
+    static java.util.List<String[]> sendable(Context c) {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        String mine = mine(c);
+        for (String[] l : LANGUAGES) if (!l[0].equals(mine)) out.add(l);
+        return out;
+    }
+
+    /** Turns translate on or off. On picks up the last language he used (Spanish the first time). */
+    static void switchOn(Context c, boolean on) {
+        android.content.SharedPreferences.Editor e = Prefs.sp(c).edit().putBoolean(Prefs.TEXTING, on)
+                .putBoolean(Prefs.TRANSLATE_ON, false);
+        if (on) {
+            String l = last(c);
+            if (l.isEmpty() || l.equals(mine(c))) e.putString(Prefs.TRANSLATE_TO, "Spanish");
+            // The open-chat reader translates the other person's messages already on screen once.
+            e.putLong(Prefs.TRANSLATE_SINCE, System.currentTimeMillis());
+        }
+        e.apply();
+    }
+
+    /** Picks the language he sends in, and turns translate on. It stays until he changes it. */
+    static void pick(Context c, String language) {
+        if (code(language) == null) return;
+        Prefs.sp(c).edit().putString(Prefs.TRANSLATE_TO, language).apply();
+        if (!texting(c)) switchOn(c, true);
+    }
+
+    /**
+     * True when a translation into {@code to} plainly didn't happen: it came back empty, or the
+     * same as an English text. Text that was already in {@code to} counts as done.
+     */
+    static boolean notTranslated(String original, String out, String to) {
+        if (out == null || out.trim().isEmpty()) return true;
+        if (!sameText(original, out)) return false;
+        return looksEnglish(original, to);
+    }
+
+    /** True when a text reads as English rather than {@code to} (used to check a translation). */
+    static boolean looksEnglish(String text, String to) {
+        if (text == null) return false;
+        String t = text.trim();
+        boolean letters = false;
+        for (int i = 0; i < t.length(); i++) {
+            char ch = t.charAt(i);
+            if (Character.isLetter(ch)) {
+                letters = true;
+                if (ch > 0x7F) return false;
+            }
+        }
+        if (!letters) return false;
+        if (to != null && to.startsWith("Spanish") && looksForeign(t, "English")) return false;
+        // Plain letters could be English or, say, French without accents: English words decide.
+        return ENGLISH_WORD.matcher(t).find();
+    }
+
+    private static final java.util.regex.Pattern ENGLISH_WORD = java.util.regex.Pattern.compile(
+            "(?i)\\b(i|i'm|you|your|the|is|are|was|be|to|and|or|but|my|we|it|it's|at|of|for|with|"
+            + "this|that|what|how|when|where|why|who|ok|okay|yes|not|hi|hello|hey|thanks|thank|please|sorry|"
+            + "good|morning|night|see|can|will|did|don't|have|has|go|going|coming|come|call|love|miss|"
+            + "tomorrow|today|tonight|later|now|soon|here|there|home|work|time|day|let|let's|lol|omg)\\b");
 
     /** The chat he's typing in: its own language ("" for the default) and whether it's switched off. */
     static volatile String chatLang = "";
@@ -43,9 +106,7 @@ final class Translate {
     }
 
     static void setTexting(Context c, boolean on) {
-        android.content.SharedPreferences.Editor e = Prefs.sp(c).edit().putBoolean(Prefs.TEXTING, on);
-        if (on && last(c).isEmpty()) e.putString(Prefs.TRANSLATE_TO, "Spanish");
-        e.apply();
+        switchOn(c, on);
     }
 
     /** Remembers what he just sent in their language, so it isn't mistaken for a reply. */
@@ -150,16 +211,13 @@ final class Translate {
 
     /** The other person's language in conversation mode: the keyboard's last pick, or Spanish. */
     static String theirs(Context c) {
-        String cl = chatLang;
-        if (!cl.isEmpty() && code(cl) != null) return cl;
-        String l = last(c);
-        return l.isEmpty() ? "Spanish" : l;
+        return theirsDefault(c);
     }
 
     /** The language new chats send in (ignoring the open chat's own choice). */
     static String theirsDefault(Context c) {
         String l = last(c);
-        return l.isEmpty() ? "Spanish" : l;
+        return l.isEmpty() || l.equals(mine(c)) ? "Spanish" : l;
     }
 
     /** ISO 639-1 code for speech-to-text and the voice ("es"). */

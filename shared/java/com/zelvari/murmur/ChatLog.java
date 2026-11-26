@@ -184,7 +184,7 @@ final class ChatLog {
         List<Msg> out = new ArrayList<>();
         Chat newest = null;
         for (Chat ch : load(c)) {
-            if (!ch.pkg.equals(pkg) || ch.off) continue;
+            if (!ch.pkg.equals(pkg)) continue;
             for (Msg m : ch.msgs) {
                 Msg x = new Msg();
                 x.from = m.mine ? "" : m.from.isEmpty() ? ch.title() : m.from;

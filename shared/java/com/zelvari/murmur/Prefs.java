@@ -40,6 +40,8 @@ final class Prefs {
     /** Speak to translate: the target language, and whether it's on. */
     static final String TRANSLATE_TO = "translate_to";
     static final String TRANSLATE_ON = "translate_on";
+    /** When translate was last turned on: the open chat's earlier messages are translated once. */
+    static final String TRANSLATE_SINCE = "translate_since";
     /** Conversation mode: Michael's own language, whether to read translations aloud, hands-free turns. */
     static final String CONVO_MINE = "convo_mine";
     static final String CONVO_SPEAK = "convo_speak";

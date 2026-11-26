@@ -27,6 +27,16 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 2.0
+
+Translate is rebuilt around one switch, with no guessing anywhere.
+
+- **One switch, ⇄ on the keyboard (or on the Live Translate screen).** Tap it on and it uses the last language you picked (Spanish the first time). Hold ⇄ for the list of languages; your pick stays until you change it. Tap it off and typing is plain again. Turning it off doesn't change anything already translated.
+- **On means every message, every time.** What you type and what you say go through the same step: your words show above the keys, and the app's box only ever holds the translation, swapped in as you go. ✓ means the box is ready to send; ⏳ means the newest words are still being translated. If a translation fails, nothing English goes in the box and ⏎ tries again. Passwords, web addresses, email boxes and search boxes are left as typed.
+- **Every reply in English.** Each incoming message is translated with no "already in English" way out, in every chat. 1.9's per-chat on/off and second "send in Spanish" switch are gone.
+- **Catch up when you turn it on.** The other person's earlier messages in the open chat (up to 8) are translated too.
+- **The newest message is always in view** on the keyboard bar and the Live Translate screen; the bar no longer cuts messages short.
+
 ## What's new in 1.9.8
 
 - **The stop button stays on the cover screen.** On a narrow screen like the Fold's cover, the mic sits at the end of the top bar and turns into the stop button while you talk. 1.9.6's 👤 button and paste chip pushed it past the right edge. Now, while you talk, the bar keeps only Cancel, undo and stop; 👤 lives under 📋 (the My info tab) on the cover screen; and the paste chip steps aside whenever it would crowd the mic.

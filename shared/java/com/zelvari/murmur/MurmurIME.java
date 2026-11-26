@@ -235,7 +235,10 @@ public class MurmurIME extends InputMethodService {
             watchingPrefs = true;
         }
         inputShown = true;
-        editorPkg = info.packageName == null ? "" : info.packageName;
+        String newPkg = info.packageName == null ? "" : info.packageName;
+        // The app may restart the box after sending: count that as sent, then start fresh.
+        tEnd(restarting && newPkg.equals(editorPkg) && info.initialSelStart <= 0);
+        editorPkg = newPkg;
         incomingExpanded = false;
         pickChat();
         paintTranslate();
@@ -264,6 +267,7 @@ public class MurmurIME extends InputMethodService {
                 candidatesStart, candidatesEnd);
         selStart = newSelStart;
         selEnd = newSelEnd;
+        if (tbuf.length() > 0) tSync();
         if (word.length() > 0 && cursorLeftWord(newSelStart, newSelEnd, candidatesStart, candidatesEnd)) {
             // The user moved the cursor: leave the word as it is.
             InputConnection ic = getCurrentInputConnection();
@@ -315,6 +319,7 @@ public class MurmurIME extends InputMethodService {
     @Override
     public void onFinishInputView(boolean finishingInput) {
         inputShown = false;
+        tEnd(true);
         if (word.length() > 0) {
             InputConnection ic = getCurrentInputConnection();
             if (ic != null) ic.finishComposingText();
@@ -419,7 +424,9 @@ public class MurmurIME extends InputMethodService {
         final String llmModel = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
         final String tone = Tones.current(this);
         final String toneRule = Tones.rule(tone);
-        final String translateTo = Translate.target(this);
+        // 2.0: dictation never translates by itself. With translate on, what he said goes into
+        // the same buffer as typing, so voice and keys follow exactly the same rules.
+        final String translateTo = "";
         // Picking a tone or a translation on the keyboard turns the AI pass on even if plain cleanup is off.
         final boolean polish = Prefs.flag(this, Prefs.CLEANUP, true) || !toneRule.isEmpty()
                 || !translateTo.isEmpty();
@@ -531,6 +538,14 @@ public class MurmurIME extends InputMethodService {
                     } else {
                         render("The text moved, so I left it as it was");
                     }
+                    return;
+                }
+                if (tmode()) {
+                    tDictated(fText);
+                    boolean handBack = oneShot || Prefs.flag(this, Prefs.AUTO_RETURN, false);
+                    oneShot = false;
+                    if (fNote != null) render(fNote);
+                    if (handBack && !fillScreen) switchToPreviousKeyboard();
                     return;
                 }
                 boolean inserted = insert(fText);
@@ -992,17 +1007,7 @@ public class MurmurIME extends InputMethodService {
             translateBtn.setOnClickListener(v -> {
                 closePanel();
                 if (recording || busy) return;
-                if (Translate.texting(this)) {
-                    onTextingTranslateTap();
-                } else if (!Translate.picked(this)) {
-                    showLanguagePicker();
-                } else {
-                    boolean on = Translate.target(this).isEmpty();
-                    Translate.setOn(this, on);
-                    paintTranslate();
-                    render(on ? "Translating to " + Translate.last(this) + " · speak in any language"
-                            : "Translate off");
-                }
+                onTextingTranslateTap();
             });
             translateBtn.setOnLongClickListener(v -> {
                 closePanel();
@@ -1427,23 +1432,16 @@ public class MurmurIME extends InputMethodService {
     private void paintTranslate() {
         if (translateBtn == null) return;
         String to = Translate.target(this);
-        if (Translate.texting(this) && !to.isEmpty()) {
+        if (!to.isEmpty()) {
             translateBtn.setText("⇄" + Translate.code(to));
             translateBtn.setTextColor(0xFFFFFFFF);
             translateBtn.setBackground(pill(0xFF7C3AED, true));
-        } else if (Translate.texting(this)) {
-            // This chat sends as typed: an outline, so it's plain that ⇄ is off here.
-            translateBtn.setText("⇄" + Translate.code(Translate.mine(this)));
-            translateBtn.setTextColor(tc[Theme.TEXT]);
-            translateBtn.setBackground(pill(0xFF7C3AED, false));
-        } else if (to.isEmpty()) {
-            translateBtn.setText("文A");
+            translateBtn.setContentDescription("Translate is on, sending in " + to + ". Tap to turn off, hold to change language");
+        } else {
+            translateBtn.setText("⇄");
             translateBtn.setTextColor(tc[Theme.TEXT]);
             translateBtn.setBackground(keyBg(tc[Theme.SURFACE]));
-        } else {
-            translateBtn.setText("→" + Translate.code(to));
-            translateBtn.setTextColor(0xFFFFFFFF);
-            translateBtn.setBackground(pill(0xFF0EA5E9, true));
+            translateBtn.setContentDescription("Translate is off. Tap to turn on");
         }
         paintIncoming();
     }
@@ -1460,52 +1458,23 @@ public class MurmurIME extends InputMethodService {
         title.setPadding(dp(8), 0, dp(6), 0);
         title.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)));
         toneList.addView(title);
-        String current = Translate.target(this);
-        final boolean texting = Translate.texting(this);
-        toneList.addView(languageChip(texting ? "📨 Live Translate: on" : "📨 Live Translate",
-                texting ? 0xFF7C3AED : 0xFF475569, () -> {
-            Translate.setTexting(this, !texting);
-            paintTranslate();
-            if (!texting && conversationIntent() != null && !repliesAllowed()) {
-                // One-time setup: Murmur's settings walk him through letting replies translate.
-                render("Live Translate on · one quick step in Murmur so replies translate by themselves");
-                Intent i = new Intent(this, MainActivity.class);
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                i.putExtra("setup_texting", true);
-                try {
-                    startActivity(i);
-                    requestHideSelf(0);
-                } catch (RuntimeException ignored) {
-                }
-                return;
-            }
-            render(!texting ? "Live Translate on · tap ⇄ in a chat to send that chat in "
-                    + Translate.theirs(this) + ". Replies show here in " + Translate.mine(this)
-                    : "Live Translate off");
+        final boolean on = Translate.texting(this);
+        final String current = Translate.theirsDefault(this);
+        if (on) toneList.addView(languageChip("Turn off", 0xFF6B7280, () -> {
+            showTonePicker(false);
+            switchTranslate(false);
         }));
         if (conversationIntent() != null) {
-            toneList.addView(languageChip("💬 Conversation", 0xFF7C3AED, this::openConversation));
+            toneList.addView(languageChip("💬 Conversation", 0xFF475569, this::openConversation));
         }
-        if (texting && Translate.sending(this)) toneList.addView(languageChip("Send in " + Translate.mine(this),
-                0xFF6B7280, () -> setSending(false)));
-        else if (!current.isEmpty()) toneList.addView(languageChip("Off", 0xFF6B7280, () -> {
-            Translate.setTexting(this, false);
-            Translate.setOn(this, false);
-            paintTranslate();
-            render("Translate off");
-        }));
-        for (String[] l : Translate.LANGUAGES) {
+        for (String[] l : Translate.sendable(this)) {
             final String name = l[0];
-            toneList.addView(languageChip(l[1] + "  " + name, name.equals(current) ? 0xFF0EA5E9 : 0xFF334155, () -> {
-                if (Translate.texting(this)) {
-                    Prefs.sp(this).edit().putString(Prefs.TRANSLATE_TO, name).apply();
-                    setSending(true);
-                    return;
-                }
-                Translate.set(this, name, true);
-                paintTranslate();
-                render(Translate.texting(this) ? "Live Translate: sends in " + name
-                        : "Translating to " + name + " · speak in any language");
+            boolean picked = on && name.equals(current);
+            toneList.addView(languageChip((picked ? "✓ " : "") + l[1] + "  " + name,
+                    picked ? 0xFF7C3AED : 0xFF334155, () -> {
+                showTonePicker(false);
+                Prefs.sp(this).edit().putString(Prefs.TRANSLATE_TO, name).apply();
+                switchTranslate(true);
             }));
         }
         TextView close = new TextView(this);
@@ -1531,14 +1500,318 @@ public class MurmurIME extends InputMethodService {
                 && (sel == null || sel.length() == 0) && word.length() == 0;
     }
 
-    /**
-     * Texting mode's ⇄: one switch for sending in their language, which stays exactly as he sets
-     * it, in every chat, until he taps it again. Turning it on also translates anything typed.
-     */
+    /** The ⇄ button: turns translate on (in the last language he used) or off. */
     void onTextingTranslateTap() {
-        boolean on = !Translate.sending(this);
-        setSending(on);
-        if (on && !fieldEmpty()) translateTyped();
+        switchTranslate(!Translate.texting(this));
+    }
+
+    /**
+     * Turns translate on or off. On: every message goes out in his language pick and every reply
+     * shows in his own, until he turns it off. Off: plain typing from now on; what was already
+     * translated stays as it is.
+     */
+    void switchTranslate(boolean on) {
+        boolean was = Translate.texting(this);
+        if (on != was || on) Translate.switchOn(this, on);
+        if (!on) tEnd(false);
+        readTypingOptions(getCurrentInputEditorInfo());
+        pickChat();
+        paintTranslate();
+        updateAutoShift();
+        String to = Translate.theirsDefault(this);
+        if (on && !was && setupMissing()) {
+            // One-time setup: Murmur's settings walk him through letting replies translate.
+            render("Translate on · one quick step in Murmur so replies translate by themselves");
+            Intent i = new Intent(this, MainActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            i.putExtra("setup_texting", true);
+            try {
+                startActivity(i);
+                requestHideSelf(0);
+            } catch (RuntimeException ignored) {
+            }
+            return;
+        }
+        if (on) {
+            render("Translate on · everything goes out in " + to + ", replies show in " + Translate.mine(this)
+                    + " · hold ⇄ to change language");
+            // Anything already typed in the box goes out in his language pick too.
+            if (tmode() && tbuf.length() == 0) {
+                String f = fieldText();
+                if (f != null && !f.trim().isEmpty() && f.length() <= T_MAX) {
+                    tbuf.append(f);
+                    tOut = f;
+                    tChanged(0);
+                }
+            }
+        } else {
+            render("Translate off · what you type goes out as you type it");
+        }
+    }
+
+    // ---- 2.0 translate engine: one path for typing and talking ---------------------------
+    //
+    // With translate on, what he types or says never goes into the app's box as is. It goes into
+    // tbuf (shown above the keys), and the box holds only its translation, swapped in whole each
+    // time it's ready. So whatever moment he taps Send, the box has nothing in English: at worst
+    // the translation of what he had typed a second earlier. 1.9.8 and before typed English into
+    // the box and translated it only if he tapped ⇄ or the bar, so typed messages went out in
+    // English whenever he didn't.
+
+    /** What he typed or said, in his language, while translate is on. */
+    private final StringBuilder tbuf = new StringBuilder();
+    /** What's in the box: the newest translation of tbuf that came back. */
+    private String tOut = "";
+    /** The buffer's version, and the version tOut is the translation of. */
+    private volatile int tGen;
+    private int tDoneGen;
+    /** Why the last translation failed, shown until the next one works. */
+    private String tFailed;
+    /** Pauses before translating: after a letter, and after a space or punctuation. */
+    static final long T_PAUSE_MS = 600, T_WORD_MS = 250;
+    /** Longest message it translates in one go. */
+    static final int T_MAX = 1500;
+    private final ExecutorService tWorker = Executors.newSingleThreadExecutor();
+    private final Runnable tFlush = this::tTranslate;
+
+    /** True when what he types here goes out translated: translate on, in an ordinary text box. */
+    private boolean tmode() {
+        return Translate.texting(this) && smartField && !searchField && !getPackageName().equals(editorPkg);
+    }
+
+    /** The whole text in the box, or null when the box won't share it. */
+    private String fieldText() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return null;
+        try {
+            ExtractedTextRequest req = new ExtractedTextRequest();
+            req.hintMaxChars = 6000;
+            ExtractedText et = ic.getExtractedText(req, 0);
+            if (et == null || et.text == null) return null;
+            // A partial report or a cut-off long text isn't the whole box.
+            boolean partial = et.partialStartOffset > 0 || et.partialEndOffset > 0;
+            if (partial || et.startOffset != 0 || et.text.length() >= req.hintMaxChars) return null;
+            return et.text.toString();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Adds typed or said text to the buffer. {@code word}: it ends a word, so translate sooner. */
+    private void tAppend(String text, boolean word) {
+        if (tbuf.length() == 0) {
+            // Words already in the box are part of this message.
+            String f = fieldText();
+            if (f != null && !f.isEmpty() && f.length() <= T_MAX) {
+                tbuf.append(f);
+                tOut = f;
+            }
+        }
+        tbuf.append(text);
+        tChanged(word ? T_WORD_MS : T_PAUSE_MS);
+    }
+
+    private void tDelete() {
+        int end = tbuf.length();
+        if (end == 0) return;
+        int start = end >= 2 && Character.isSurrogatePair(tbuf.charAt(end - 2), tbuf.charAt(end - 1)) ? end - 2 : end - 1;
+        tbuf.delete(start, end);
+        tChanged(tbuf.length() == 0 ? 0 : T_PAUSE_MS);
+        updateAutoShift();
+    }
+
+    /** What he said, added to what he typed, and translated right away. */
+    private void tDictated(String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        boolean space = tbuf.length() > 0 && !Character.isWhitespace(tbuf.charAt(tbuf.length() - 1));
+        tAppend((space ? " " : "") + text.trim(), true);
+        ui.removeCallbacks(tFlush);
+        tTranslate();
+    }
+
+    private void tChanged(long delay) {
+        tGen++;
+        tFailed = null;
+        ui.removeCallbacks(tFlush);
+        if (delay <= 0) ui.post(tFlush);
+        else ui.postDelayed(tFlush, delay);
+        tShow();
+    }
+
+    /** Translates the whole buffer and swaps it into the box. */
+    void tTranslate() {
+        if (!tmode()) return;
+        final String src = tbuf.toString();
+        final int gen = tGen;
+        if (src.trim().isEmpty()) {
+            if (tSetField("")) tOut = "";
+            tDoneGen = gen;
+            tShow();
+            return;
+        }
+        if (src.length() > T_MAX) {
+            tFailed = "too long to translate in one message";
+            tShow();
+            return;
+        }
+        final String key = Prefs.get(this, Prefs.API_KEY, "");
+        if (key.isEmpty()) {
+            tFailed = "add your API key in the Murmur app first";
+            tShow();
+            return;
+        }
+        final String base = stripSlash(Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL));
+        final String model = Prefs.get(this, Prefs.LLM_MODEL, Prefs.DEF_LLM_MODEL);
+        final String to = Translate.theirsDefault(this);
+        tShow();
+        tWorker.execute(() -> {
+            // Newer typing is on its way: translate that instead.
+            if (gen != tGen) return;
+            String out = null, error = null;
+            try {
+                out = AiClient.toLang(base, key, model, src, to);
+                if (Translate.notTranslated(src, out, to)) out = AiClient.toLang(base, key, model, src, to);
+                if (Translate.notTranslated(src, out, to)) {
+                    out = null;
+                    error = "it came back in " + Translate.mine(this);
+                }
+            } catch (Exception e) {
+                String m = e.getMessage();
+                error = m == null || m.isEmpty() ? "network problem" : m;
+            }
+            final String fOut = out, fError = error;
+            ui.post(() -> tApply(gen, fOut, fError));
+        });
+    }
+
+    private void tApply(int gen, String out, String error) {
+        if (!tmode() || gen <= tDoneGen || gen > tGen) return;
+        if (error != null) {
+            if (gen == tGen) {
+                tFailed = error;
+                tShow();
+            }
+            return;
+        }
+        // The box emptied since: he sent it, so nothing goes back in.
+        if (tSync()) return;
+        if (!tSetField(out)) {
+            tFailed = "the box changed, so tap ⏎ to try again";
+            tShow();
+            return;
+        }
+        tOut = out;
+        tDoneGen = gen;
+        tFailed = null;
+        tShow();
+    }
+
+    /** Puts {@code text} in the box in place of what's there. */
+    private boolean tSetField(String text) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return false;
+        String f = fieldText();
+        ic.beginBatchEdit();
+        try {
+            if (f != null) {
+                // The whole box is the message: select it all and put the translation in its place.
+                ic.setSelection(0, f.length());
+                ic.commitText(text, 1);
+            } else {
+                // The box won't share its text: swap what Murmur put before the cursor.
+                CharSequence before = tOut.isEmpty() ? "" : ic.getTextBeforeCursor(tOut.length(), 0);
+                if (before == null || !before.toString().equals(tOut)) return false;
+                if (!tOut.isEmpty()) ic.deleteSurroundingText(tOut.length(), 0);
+                ic.commitText(text, 1);
+            }
+        } finally {
+            ic.endBatchEdit();
+        }
+        lastInsertedLength = 0;
+        lastText = null;
+        undoRestore = null;
+        return true;
+    }
+
+    /**
+     * Checks the box against the buffer. Empty when Murmur's translation was in it: he sent it.
+     * Anything else added to it (a paste, a saved address) joins the message. Returns true when
+     * the message was sent.
+     */
+    private boolean tSync() {
+        if (tbuf.length() == 0 || !tmode()) return false;
+        String f = fieldText();
+        if (f == null || f.equals(tOut)) return false;
+        if (f.isEmpty()) {
+            if (!tOut.isEmpty()) {
+                tSent();
+                return true;
+            }
+            return false;
+        }
+        if (!tOut.isEmpty() && f.startsWith(tOut)) {
+            tbuf.append(f.substring(tOut.length()));
+        } else {
+            tbuf.setLength(0);
+            tbuf.append(f);
+        }
+        tOut = f;
+        tChanged(T_WORD_MS);
+        return false;
+    }
+
+    /** The message went out: it joins the chat's thread, and the buffer starts over. */
+    private void tSent() {
+        String said = tbuf.toString().trim(), sent = tOut.trim();
+        tbuf.setLength(0);
+        tOut = "";
+        tGen++;
+        tDoneGen = tGen;
+        tFailed = null;
+        ui.removeCallbacks(tFlush);
+        if (!sent.isEmpty()) {
+            Translate.rememberSent(this, sent);
+            logMine(said, sent);
+            String when = new java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(new java.util.Date());
+            Prefs.sp(this).edit().putString(Prefs.DIAG_SENT, when + " · sent in " + Translate.theirsDefault(this)).apply();
+        }
+        tShow();
+        updateAutoShift();
+    }
+
+    /** The box closed or another one opened: a sent message is logged, the rest dropped. */
+    private void tEnd(boolean maybeSent) {
+        if (maybeSent && tbuf.length() > 0 && !tOut.isEmpty()) {
+            String f = fieldText();
+            if (f != null && f.isEmpty()) {
+                tSent();
+                return;
+            }
+        }
+        boolean had = tbuf.length() > 0;
+        tbuf.setLength(0);
+        tOut = "";
+        tGen++;
+        tDoneGen = tGen;
+        tFailed = null;
+        ui.removeCallbacks(tFlush);
+        if (had) tShow();
+    }
+
+    /** The line above the keys: what he wrote, and whether the box has it in his language pick yet. */
+    private void tShow() {
+        if (!tmode() || recording || busy) return;
+        String to = Translate.theirsDefault(this);
+        if (tbuf.length() == 0) {
+            render("⇄ Type or talk in " + Translate.mine(this) + " · it goes in the box in " + to);
+            return;
+        }
+        String t = tbuf.toString();
+        if (t.length() > 70) t = "…" + t.substring(t.length() - 70);
+        String mark = tFailed != null ? "  ⚠ Not translated: " + tFailed + " · tap ⏎ to try again"
+                : tDoneGen == tGen ? "  ✓ " + Translate.code(to) + " in the box"
+                : "  ⏳ " + Translate.code(to) + "…";
+        render("✍ " + t + mark);
     }
 
     /** True when the open-chat reader is sure which chat he's typing in. */
@@ -1551,30 +1824,6 @@ public class MurmurIME extends InputMethodService {
         String to = Translate.target(this);
         return to.isEmpty() ? "Sending in " + Translate.mine(this)
                 : "SENDING IN " + to.toUpperCase(java.util.Locale.ROOT);
-    }
-
-    private void setSending(boolean on) {
-        Translate.setSending(this, on);
-        pickChat();
-        paintTranslate();
-        render(on ? "Sending in " + Translate.theirsDefault(this) + " in every chat until you tap ⇄ again"
-                + " · talk, or type and tap the purple bar"
-                : "Sending in " + Translate.mine(this) + " until you tap ⇄ again");
-    }
-
-    /** Texting mode: the ⇄ button turns what's typed (or selected) into their language. */
-    private void translateTyped() {
-        boolean empty = fieldEmpty();
-        String to = Translate.theirs(this);
-        if (empty) {
-            render("Live Translate: " + to + " · talk, or type in " + Translate.mine(this)
-                    + " and tap ⇄ to translate it. Hold for options");
-            return;
-        }
-        translatingTyped = true;
-        rewrite("Translate the text into " + to + " the way a native speaker would write this text "
-                + "message. Keep its tone, emoji, names, numbers and links. If it is already in " + to
-                + ", return it unchanged.", "→ " + to);
     }
 
     private long shownIncomingAt;
@@ -1627,7 +1876,7 @@ public class MurmurIME extends InputMethodService {
     ChatLog.Chat stripChat() {
         if (!chatKnown()) return null;
         ChatLog.Chat c = ChatLog.get(this, chat.key);
-        return c == null || c.off ? null : c;
+        return c;
     }
 
     /**
@@ -1653,8 +1902,7 @@ public class MurmurIME extends InputMethodService {
         // Which way this chat sends, so it's plain before he types.
         // Which way he's sending, big and plain, so it's never a surprise.
         boolean sending = texting && !to.isEmpty();
-        String state = !texting ? "" : "⇄ " + sendingLine() + (sending
-                ? " · ⇄ for " + Translate.mine(this) : " · ⇄ for " + Translate.theirsDefault(this));
+        String state = !texting ? "" : "⇄ " + sendingLine() + " · replies in " + Translate.mine(this).toUpperCase(java.util.Locale.ROOT);
         if (hasThread) {
             android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(state);
             sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sb.length(), 0);
@@ -1673,18 +1921,23 @@ public class MurmurIME extends InputMethodService {
             bg = sending ? 0xFF6D28D9 : 0xFF334155;
             closeLabel = "Off";
         } else {
-            text = "→ Translating what you say into " + to;
+            text = "";
             bg = 0xFF075985;
             closeLabel = "Off";
         }
         incomingText.setText(text);
-        incomingText.setMaxLines(hasThread && incomingExpanded ? 200 : 4);
-        incomingText.setEllipsize(hasThread && incomingExpanded ? null : android.text.TextUtils.TruncateAt.END);
+        // Never cut short: the newest message is the last line, and the bar always scrolls to it.
+        // Up to 1.9.8 the bar showed four lines and cut the rest with "…", so a long earlier
+        // message pushed the newest reply out of sight.
+        incomingText.setMaxLines(Integer.MAX_VALUE);
+        incomingText.setEllipsize(null);
         if (incomingScroll != null) {
             ViewGroup.LayoutParams lp = incomingScroll.getLayoutParams();
-            lp.height = hasThread && incomingExpanded ? dp(150) : ViewGroup.LayoutParams.WRAP_CONTENT;
+            boolean tall = hasThread && (incomingExpanded || text.length() > 150);
+            lp.height = tall ? dp(incomingExpanded ? 150 : 84) : ViewGroup.LayoutParams.WRAP_CONTENT;
             incomingScroll.setLayoutParams(lp);
             incomingScroll.post(() -> incomingScroll.fullScroll(View.FOCUS_DOWN));
+            incomingScroll.postDelayed(() -> incomingScroll.fullScroll(View.FOCUS_DOWN), 120);
         }
         incomingBar.setBackground(pill(bg, true));
         incomingBar.setVisibility(View.VISIBLE);
@@ -1693,8 +1946,9 @@ public class MurmurIME extends InputMethodService {
         final boolean fThread = hasThread;
         final boolean fSending = sending;
         View.OnClickListener tap = v -> {
-            if (fSending && !fieldEmpty()) {
-                translateTyped();
+            if (fSending && tbuf.length() > 0 && tDoneGen != tGen) {
+                ui.removeCallbacks(tFlush);
+                tTranslate();
             } else if (fThread) {
                 incomingExpanded = !incomingExpanded;
                 paintIncoming();
@@ -1719,13 +1973,9 @@ public class MurmurIME extends InputMethodService {
                 hiddenKey = ch.key;
                 hiddenAt = ch.at;
                 render("Hidden until their next message · ↗ shows the whole chat");
-            } else if (Translate.texting(this)) {
-                Translate.setTexting(this, false);
-                pickChat();
-                render("Live Translate off");
             } else {
-                Translate.setOn(this, false);
-                render("Translate off");
+                switchTranslate(false);
+                return;
             }
             paintTranslate();
         });
@@ -1771,7 +2021,8 @@ public class MurmurIME extends InputMethodService {
     }
 
     private final android.content.SharedPreferences.OnSharedPreferenceChangeListener prefWatch = (sp, key) -> {
-        if (!Prefs.IN_AT.equals(key) && !Prefs.CHAT_OPEN_AT.equals(key) && !Prefs.SEND_LAST.equals(key)) return;
+        if (!Prefs.IN_AT.equals(key) && !Prefs.CHAT_OPEN_AT.equals(key) && !Prefs.SEND_LAST.equals(key)
+                && !Prefs.TEXTING.equals(key) && !Prefs.TRANSLATE_TO.equals(key)) return;
         ui.post(() -> {
             String before = chat == null ? "" : chat.key;
             pickChat();
@@ -1804,8 +2055,10 @@ public class MurmurIME extends InputMethodService {
 
     /** The two-way conversation screen, which only the phone app has (not the watch). */
     private Intent conversationIntent() {
+        android.content.pm.PackageManager pm = getPackageManager();
+        if (pm == null) return null;
         Intent i = new Intent().setClassName(getPackageName(), "com.zelvari.murmur.ConversationActivity");
-        return getPackageManager().resolveActivity(i, 0) == null ? null : i;
+        return pm.resolveActivity(i, 0) == null ? null : i;
     }
 
     private void openConversation() {
@@ -2363,7 +2616,7 @@ public class MurmurIME extends InputMethodService {
     private boolean wordNoCorrect;
     private String keepAsTyped;
     private final List<String> swipeAlts = new ArrayList<>();
-    private boolean smartField, suggestOn, autocorrectOn;
+    private boolean smartField, suggestOn, autocorrectOn, searchField;
     /** The last autocorrect, so backspace right after it brings back what was typed. */
     private String revertFrom, revertTo, revertSep;
     /** A space added after a picked suggestion; punctuation typed next moves in front of it. */
@@ -2527,10 +2780,16 @@ public class MurmurIME extends InputMethodService {
                 || var == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
                 || var == InputType.TYPE_TEXT_VARIATION_URI;
         smartField = cls == InputType.TYPE_CLASS_TEXT && !secret && !address;
+        // Search boxes (chats, contacts, the web) search what he typed, so they aren't translated.
+        int action = info != null ? info.imeOptions & EditorInfo.IME_MASK_ACTION : 0;
+        searchField = var == InputType.TYPE_TEXT_VARIATION_FILTER || action == EditorInfo.IME_ACTION_SEARCH;
         suggestOn = smartField && (type & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) == 0;
         autocorrectOn = suggestOn && Prefs.flag(this, Prefs.AUTO_REPLACE, false);
         if (keys != null) {
-            keys.setOptions(smartField && Prefs.flag(this, Prefs.SWIPE, true),
+            // Swipe is off while what he types goes out translated: words go in the buffer one key at a time.
+            boolean own = info != null && getPackageName().equals(info.packageName);
+            boolean translating = Translate.texting(this) && !searchField && !own;
+            keys.setOptions(smartField && Prefs.flag(this, Prefs.SWIPE, true) && !translating,
                     Prefs.flag(this, Prefs.KEY_VIBRATE, true), Prefs.flag(this, Prefs.KEY_SOUND, false));
         }
     }
@@ -2552,6 +2811,12 @@ public class MurmurIME extends InputMethodService {
     private void onTypedChar(String s) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
+        if (tmode()) {
+            lastCharShift = shift;
+            tAppend(s, ".,!?;:".contains(s));
+            afterKey(Character.isLetter(s.charAt(0)));
+            return;
+        }
         lastCharShift = shift;
         char c = s.charAt(0);
         boolean letter = Character.isLetter(c);
@@ -3064,6 +3329,21 @@ public class MurmurIME extends InputMethodService {
         long now = SystemClock.uptimeMillis();
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
+        if (tmode()) {
+            // Double-tap space for ". " here too.
+            int n = tbuf.length();
+            if (now - lastSpaceTap < 450 && n >= 2 && tbuf.charAt(n - 1) == ' '
+                    && Character.isLetterOrDigit(tbuf.charAt(n - 2))) {
+                tbuf.setLength(n - 1);
+                tAppend(". ", true);
+                lastSpaceTap = 0;
+            } else {
+                tAppend(" ", true);
+                lastSpaceTap = now;
+            }
+            updateAutoShift();
+            return;
+        }
         boolean hadWord = word.length() > 0;
         if (expandShortcut(ic)) {
             lastSpaceTap = now;
@@ -3141,6 +3421,15 @@ public class MurmurIME extends InputMethodService {
     /** Capitalizes the next letter at the start of a sentence, when the field wants that. */
     private void updateAutoShift() {
         if (keys == null || shift == SHIFT_LOCK || symbols || word.length() > 0) return;
+        if (tmode()) {
+            String t = tbuf.toString().replaceAll("\\s+$", "");
+            int w = t.isEmpty() || t.endsWith(".") || t.endsWith("?") || t.endsWith("!") ? SHIFT_ONCE : SHIFT_OFF;
+            if (w != shift) {
+                shift = w;
+                keys.setShift(shift);
+            }
+            return;
+        }
         int want = SHIFT_OFF;
         EditorInfo info = getCurrentInputEditorInfo();
         InputConnection ic = getCurrentInputConnection();
@@ -3236,6 +3525,10 @@ public class MurmurIME extends InputMethodService {
     }
 
     private void deleteBackward() {
+        if (tmode() && tbuf.length() > 0) {
+            tDelete();
+            return;
+        }
         InputConnection ic = getCurrentInputConnection();
         CharSequence sel = ic != null ? ic.getSelectedText(0) : null;
         if (sel != null && sel.length() > 0) {
@@ -3247,6 +3540,12 @@ public class MurmurIME extends InputMethodService {
     }
 
     private void pressEnter() {
+        if (tmode() && tbuf.length() > 0 && (tDoneGen != tGen || tFailed != null)) {
+            // Not translated yet: ⏎ translates it now instead of sending English.
+            ui.removeCallbacks(tFlush);
+            tTranslate();
+            return;
+        }
         finishWord(true);
         clearRevert();
         autoSpace = false;

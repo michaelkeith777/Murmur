@@ -168,17 +168,25 @@ public class MurmurChatReader extends AccessibilityService {
         for (String t : lastTheirs(bubbles, ch == null ? null : ch.msgs)) {
             if (!fresh.contains(t) && !Translate.wasSent(this, t)) fresh.add(t);
         }
-        if (fresh.isEmpty()) return;
         // A burst of several replies at once: the last three are plenty.
         while (fresh.size() > 3) fresh.remove(0);
+        // Just turned on (or a chat opened since): the other person's earlier messages on screen
+        // that were never translated, so a message from before he turned it on shows in English too.
+        String once = key + "@" + Prefs.sp(this).getLong(Prefs.TRANSLATE_SINCE, 0);
+        if (nameSure && !from.isEmpty() && !once.equals(caughtUp) && !caughtUpKeys.contains(once)) {
+            caughtUpKeys.add(once);
+            caughtUp = once;
+            List<String> earlier = new ArrayList<>();
+            for (String t : earlierTheirs(bubbles, ch == null ? null : ch.msgs)) {
+                if (!fresh.contains(t) && !Translate.wasSent(this, t)) earlier.add(t);
+            }
+            fresh.addAll(0, earlier);
+        }
+        if (fresh.isEmpty()) return;
 
         final String apiKey = Prefs.get(this, Prefs.API_KEY, "");
         if (apiKey.isEmpty()) {
             MurmurNotifications.note(this, "no API key, so nothing was translated");
-            return;
-        }
-        if (ch != null && ch.off) {
-            MurmurNotifications.note(this, "Live Translate is off for " + ch.title());
             return;
         }
         String b = Prefs.get(this, Prefs.BASE_URL, Prefs.DEF_BASE_URL);
@@ -218,6 +226,41 @@ public class MurmurChatReader extends AccessibilityService {
         List<String> keep = new ArrayList<>();
         for (String t : out) if (!have.contains(t.trim().replaceAll("\\s+", " "))) keep.add(t);
         return keep;
+    }
+
+    private String caughtUp = "";
+    private final java.util.Set<String> caughtUpKeys = new java.util.HashSet<>();
+
+    /** How many of the other person's earlier messages on screen are translated when it turns on. */
+    static final int CATCH_UP = 8;
+
+    /**
+     * The other person's messages anywhere on screen (the newest {@link #CATCH_UP}) that the
+     * chat's thread doesn't have yet, oldest first.
+     */
+    static List<String> earlierTheirs(List<Bubble> bubbles, List<ChatLog.Msg> log) {
+        java.util.Set<String> have = new java.util.HashSet<>();
+        if (log != null) for (ChatLog.Msg m : log) if (!m.mine) have.add(m.orig.trim().replaceAll("\\s+", " "));
+        List<String> out = new ArrayList<>();
+        for (int i = bubbles.size() - 1; i >= 0 && out.size() < CATCH_UP; i--) {
+            Bubble bb = bubbles.get(i);
+            if (bb.mine || bb.text.length() > 1500 || NOT_A_MESSAGE.matcher(bb.text).matches()) continue;
+            String n = bb.text.trim().replaceAll("\\s+", " ");
+            if (have.contains(n) || out.contains(bb.text)) continue;
+            out.add(0, bb.text);
+        }
+        return out;
+    }
+
+    /** For the tests: {@link #earlierTheirs} on plain lists, his bubbles marked with "me:". */
+    static List<String> earlierTheirsOf(List<String> screen, List<ChatLog.Msg> log) {
+        List<Bubble> bs = new ArrayList<>();
+        for (int i = 0; i < screen.size(); i++) {
+            String s = screen.get(i);
+            boolean me = s.startsWith("me:");
+            bs.add(new Bubble(me ? s.substring(3) : s, me, i));
+        }
+        return earlierTheirs(bs, log);
     }
 
     /** For the tests: the same check on plain lists, his bubbles marked with a leading "me:". */

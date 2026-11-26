@@ -242,11 +242,6 @@ public class MurmurNotifications extends NotificationListenerService {
                 note(this, "no API key, so nothing was translated");
                 return;
             }
-            ChatLog.Chat ch = ChatLog.find(this, pkg, in.chat);
-            if (ch != null && ch.off) {
-                note(this, app + ": Live Translate is off for " + ch.title());
-                continue;
-            }
             final String fFrom = in.from, fChat = in.chat, fText = text;
             note(this, app + ": translating a message from " + (fFrom.isEmpty() ? "someone" : fFrom) + "…");
             worker.execute(() -> handle(ctx, base, key, model, mine, fPkg, fChat, fFrom, fText, app, open, false));
@@ -268,9 +263,10 @@ public class MurmurNotifications extends NotificationListenerService {
                        String chatName, String from, String text, String app, PendingIntent open,
                        boolean onScreen) {
         try {
-            String out = AiClient.toMine(base, key, model, text, mine);
-            // The translator sometimes leaves a short or mixed Spanish reply as is ("Sí, mañana",
-            // "ok amor"). When the text plainly isn't in his language, ask again with no way out.
+            // 2.0: every reply is translated, with no "already in English" way out for the
+            // translator, which used to leave some Spanish replies as they were. One more try
+            // when it still comes back the same and plainly isn't English.
+            String out = AiClient.toMineForced(base, key, model, text, mine);
             if ((out.isEmpty() || Translate.sameText(out, text)) && Translate.looksForeign(text, mine)) {
                 out = AiClient.toMineForced(base, key, model, text, mine);
             }

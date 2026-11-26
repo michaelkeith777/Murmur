@@ -94,29 +94,35 @@ public class LiveTranslateActivity extends Activity {
         body.removeAllViews();
         ChatLog.Chat ch = openKey == null ? null : ChatLog.get(this, openKey);
         if (openKey != null && ch == null) openKey = null;
-        if (ch != null) renderChat(ch);
-        else renderList();
+        if (ch != null) {
+            renderChat(ch);
+            // The newest message, always in view: after he sends and after they reply.
+            scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
+            scroll.postDelayed(() -> scroll.fullScroll(View.FOCUS_DOWN), 120);
+        } else {
+            renderList();
+        }
     }
 
     // ---- the list of chats --------------------------------------------------------------
 
     private void renderList() {
         body.addView(title("Live Translate"));
-        body.addView(line("Their replies come back in " + Translate.mine(this) + ", on the keyboard and here. "
-                + "⇄ on the keyboard switches what you send between " + Translate.mine(this) + " and "
-                + Translate.theirsDefault(this) + ", and it stays that way in every chat until you tap it again.",
-                dim, 14));
+        body.addView(line("One switch, the same as ⇄ on the keyboard. On: everything you type or say goes out in "
+                + Translate.theirsDefault(this) + ", and every reply shows here and on the keyboard in "
+                + Translate.mine(this) + ", in every chat, until you turn it off. Off: plain typing. "
+                + "Messages already translated stay as they are.", dim, 14));
 
         boolean on = Translate.texting(this);
         Switch sw = new Switch(this);
-        sw.setText(on ? "Live Translate is on" : "Live Translate is off");
+        sw.setText(on ? "Translate is on · " + Translate.theirsDefault(this) : "Translate is off");
         sw.setTextColor(text);
         sw.setTextSize(18);
         sw.setTypeface(Typeface.DEFAULT_BOLD);
         sw.setChecked(on);
         sw.setPadding(0, dp(18), 0, dp(6));
         sw.setOnCheckedChangeListener((b, checked) -> {
-            Translate.setTexting(this, checked);
+            Translate.switchOn(this, checked);
             if (checked && !ready()) startSetup();
             render();
         });
@@ -129,30 +135,14 @@ public class LiveTranslateActivity extends Activity {
                     ready ? 0xFF22C55E : 0xFFF59E0B, 14);
             if (!ready) setup.setOnClickListener(v -> startSetup());
             body.addView(setup);
-            Switch send = new Switch(this);
-            boolean sending = Translate.sending(this);
-            send.setText(sending ? "SENDING IN " + Translate.theirsDefault(this).toUpperCase(java.util.Locale.ROOT)
-                    : "Sending in " + Translate.mine(this));
-            send.setTextColor(sending ? 0xFFC4B5FD : text);
-            send.setTextSize(17);
-            send.setTypeface(Typeface.DEFAULT_BOLD);
-            send.setChecked(sending);
-            send.setPadding(0, dp(14), 0, dp(2));
-            send.setOnCheckedChangeListener((b, checked) -> {
-                Translate.setSending(this, checked);
-                render();
-            });
-            body.addView(send);
-            body.addView(line("Same as ⇄ on the keyboard. It's for every chat, so switch it back when you "
-                    + "text someone in " + Translate.mine(this) + ".", dim, 12));
             body.addView(status());
         }
 
         body.addView(row("You read in", Translate.mine(this), v -> pickLanguage("You read in", Translate.mine(this),
                 name -> Prefs.sp(this).edit().putString(Prefs.CONVO_MINE, name).apply())));
-        body.addView(row("⇄ translates into", Translate.theirsDefault(this),
-                v -> pickLanguage("⇄ translates into", Translate.last(this), name -> Translate.set(this, name,
-                        Prefs.flag(this, Prefs.TRANSLATE_ON, false)))));
+        body.addView(row("You send in", Translate.theirsDefault(this),
+                v -> pickLanguage("You send in", Translate.theirsDefault(this),
+                        name -> Prefs.sp(this).edit().putString(Prefs.TRANSLATE_TO, name).apply())));
 
         body.addView(section("CHATS"));
         List<ChatLog.Chat> chats = ChatLog.all(this);
@@ -182,7 +172,7 @@ public class LiveTranslateActivity extends Activity {
 
     private View chatRow(ChatLog.Chat c) {
         LinearLayout box = card();
-        TextView name = line(c.title() + (c.off ? "  · off" : ""), text, 16);
+        TextView name = line(c.title(), text, 16);
         name.setTypeface(Typeface.DEFAULT_BOLD);
         name.setPadding(0, 0, 0, dp(2));
         box.addView(name);
@@ -214,18 +204,6 @@ public class LiveTranslateActivity extends Activity {
         body.addView(back);
         body.addView(title(c.title()));
         if (!c.app.isEmpty()) body.addView(line(c.app, dim, 13));
-
-        Switch sw = new Switch(this);
-        sw.setText("Show their replies in " + Translate.mine(this));
-        sw.setTextColor(text);
-        sw.setTextSize(16);
-        sw.setChecked(!c.off);
-        sw.setPadding(0, dp(10), 0, dp(4));
-        sw.setOnCheckedChangeListener((b, checked) -> {
-            ChatLog.settings(this, c, null, !checked);
-            render();
-        });
-        body.addView(sw);
 
         body.addView(section("MESSAGES IN " + Translate.mine(this).toUpperCase(java.util.Locale.ROOT)));
         long lastDay = -1;
