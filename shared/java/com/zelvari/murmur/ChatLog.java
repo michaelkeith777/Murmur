@@ -22,13 +22,18 @@ final class ChatLog {
     private ChatLog() {}
 
     static final int MAX_CHATS = 40;
-    static final int MAX_MSGS = 80;
+    static final int MAX_MSGS = 200;
     private static final String FILE = "live_translate.json";
 
     static final class Msg {
         String from = "", orig = "", text = "";
         boolean mine;
         long at;
+
+        /** What a thread shows for their message: its translation, or ⋯ while it's on the way. */
+        String shown() {
+            return !mine && text.isEmpty() ? "⋯" : text;
+        }
     }
 
     static final class Chat {
@@ -222,6 +227,110 @@ final class ChatLog {
         return null;
     }
 
+    static String norm(String t) {
+        return t == null ? "" : t.trim().replaceAll("\\s+", " ");
+    }
+
+    /**
+     * 2.2: their earlier messages read off the screen, put in the thread right away, in screen
+     * order, each with no translation yet (it fills in with {@link #fill}). Placed by what's
+     * around them on screen: just above the nearest message under it that the thread has, else
+     * just below the nearest one over it, else at the end when the chat is at its newest message,
+     * or at the start when he's scrolled up past everything the thread has.
+     * {@code screen}: every bubble on screen, top to bottom; {@code add}: the positions to add.
+     */
+    static synchronized Chat placeEarlier(Context c, String pkg, String app, String name, List<String> screen,
+                                          List<Integer> add, boolean atBottom) {
+        List<Chat> all = load(c);
+        Chat ch = findIn(all, pkg, name);
+        if (ch == null) {
+            ch = new Chat();
+            ch.key = key(pkg, name);
+            ch.pkg = pkg == null ? "" : pkg;
+            ch.name = name == null ? "" : name.trim();
+            all.add(0, ch);
+        }
+        if (app != null && !app.isEmpty()) ch.app = app;
+        java.util.Set<Integer> adding = new java.util.HashSet<>(add);
+        long now = System.currentTimeMillis();
+        // Bottom up, so each one already has the one under it in place.
+        for (int k = add.size() - 1; k >= 0; k--) {
+            int i = add.get(k);
+            Msg m = new Msg();
+            m.from = name == null ? "" : name;
+            m.orig = screen.get(i);
+            m.text = "";
+            int at = -1;
+            for (int j = i + 1; j < screen.size() && at < 0; j++) {
+                if (adding.contains(j) && j > i && !placed(ch, screen.get(j))) continue;
+                at = indexOf(ch.msgs, screen.get(j), true);
+            }
+            if (at < 0) {
+                for (int j = i - 1; j >= 0 && at < 0; j--) {
+                    if (adding.contains(j)) continue;
+                    int up = indexOf(ch.msgs, screen.get(j), false);
+                    if (up >= 0) at = up + 1;
+                }
+            }
+            if (at < 0) at = atBottom ? ch.msgs.size() : 0;
+            long before = at < ch.msgs.size() ? ch.msgs.get(at).at - 1 : now;
+            long after = at > 0 ? ch.msgs.get(at - 1).at : 0;
+            m.at = Math.max(after, Math.min(before, now));
+            // At the end of a chat at its newest message, it's as recent as a new reply.
+            if (at == ch.msgs.size() && atBottom) ch.at = now;
+            ch.msgs.add(at, m);
+        }
+        if (ch.at == 0) ch.at = now;
+        while (ch.msgs.size() > MAX_MSGS) ch.msgs.remove(0);
+        save(c);
+        return ch;
+    }
+
+    private static boolean placed(Chat ch, String t) {
+        return indexOf(ch.msgs, t, true) >= 0;
+    }
+
+    /** Where a message with this text is in the thread: the first one, or the last one. */
+    private static int indexOf(List<Msg> msgs, String t, boolean first) {
+        String n = norm(t);
+        if (first) {
+            for (int i = 0; i < msgs.size(); i++) if (n.equals(norm(msgs.get(i).orig)) || n.equals(norm(msgs.get(i).text))) return i;
+        } else {
+            for (int i = msgs.size() - 1; i >= 0; i--) if (n.equals(norm(msgs.get(i).orig)) || n.equals(norm(msgs.get(i).text))) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * Fills in the translation of an earlier message {@link #placeEarlier} put in the thread.
+     * {@code out} null: it couldn't be translated, so it comes out, to be tried again later.
+     * Returns the chat, or null when the message isn't waiting there any more.
+     */
+    static synchronized Chat fill(Context c, String pkg, String name, String orig, String out) {
+        Chat ch = findIn(load(c), pkg, name);
+        if (ch == null) return null;
+        String n = norm(orig);
+        for (int i = 0; i < ch.msgs.size(); i++) {
+            Msg m = ch.msgs.get(i);
+            if (m.mine || !m.text.isEmpty() || !n.equals(norm(m.orig))) continue;
+            if (out == null) {
+                ch.msgs.remove(i);
+            } else {
+                m.text = out;
+                String l = Translate.detect(orig);
+                if (!l.isEmpty() && i == lastTheirs(ch)) ch.theirLang = l;
+            }
+            save(c);
+            return ch;
+        }
+        return null;
+    }
+
+    private static int lastTheirs(Chat ch) {
+        for (int i = ch.msgs.size() - 1; i >= 0; i--) if (!ch.msgs.get(i).mine) return i;
+        return -1;
+    }
+
     /** Adds a message to its chat's thread and moves that chat to the top. */
     static synchronized Chat add(Context c, String pkg, String app, String name, String from,
                                  String orig, String text, boolean mine) {
@@ -246,8 +355,8 @@ final class ChatLog {
         m.mine = mine;
         m.at = System.currentTimeMillis();
         ch.msgs.add(m);
-        while (ch.msgs.size() > MAX_MSGS) ch.msgs.remove(0);
         ch.at = m.at;
+        while (ch.msgs.size() > MAX_MSGS) ch.msgs.remove(0);
         all.remove(ch);
         all.add(0, ch);
         while (all.size() > MAX_CHATS) all.remove(all.size() - 1);
@@ -343,6 +452,8 @@ final class ChatLog {
                     m.text = mo.optString("text");
                     m.mine = mo.optBoolean("mine");
                     m.at = mo.optLong("at");
+                    // An earlier message still waiting for its translation when Murmur stopped.
+                    if (!m.mine && m.text.isEmpty()) continue;
                     ch.msgs.add(m);
                 }
                 if (ch.key.isEmpty()) continue;

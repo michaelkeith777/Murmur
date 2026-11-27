@@ -27,6 +27,12 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 2.2
+
+- **The whole open chat in English.** Turn translate on in a chat and every message of theirs on screen is translated, not just the newest eight. Scroll up and the older ones translate as they come into view. Each one goes in its place in the thread, showing ⋯ until its English is in.
+- **See all of it.** Tap the purple bar to open the whole translated chat (it scrolls), or ↗ for Live Translate. A chat now keeps up to 200 messages.
+- **Limits.** Murmur can't change the text inside WhatsApp itself: the English shows on Murmur's bar, its floating bubble and in Live Translate. It can only read what the chat app has on screen, so messages further back need a scroll up to reach them. It needs the chat's name read clearly to file messages under the right person.
+
 ## What's new in 2.1
 
 - **Space bar right of the period.** The bottom row is now `?123 🌐 , . space ⏎`, so the space bar sits under your right thumb. In email and web boxes, `@` or `/` and `.com` stay on the row.

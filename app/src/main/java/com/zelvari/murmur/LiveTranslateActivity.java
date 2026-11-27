@@ -181,7 +181,7 @@ public class LiveTranslateActivity extends Activity {
         box.addView(line((c.app.isEmpty() ? "" : c.app + (when.isEmpty() ? "" : " · ")) + when, dim, 12));
         if (!c.msgs.isEmpty()) {
             ChatLog.Msg m = c.msgs.get(c.msgs.size() - 1);
-            TextView last = line((m.mine ? "You: " + (m.orig.isEmpty() ? m.text : m.orig) : m.text), text, 14);
+            TextView last = line((m.mine ? "You: " + (m.orig.isEmpty() ? m.text : m.orig) : m.shown()), text, 14);
             last.setMaxLines(2);
             last.setEllipsize(android.text.TextUtils.TruncateAt.END);
             last.setPadding(0, dp(4), 0, 0);
@@ -251,7 +251,7 @@ public class LiveTranslateActivity extends Activity {
         String time = DateUtils.formatDateTime(this, m.at, DateUtils.FORMAT_SHOW_TIME);
         b.addView(line(who + " · " + time, 0xFFC4B5FD, 12));
         // His own message reads as he said it; theirs reads in his language.
-        String main = m.mine && !m.orig.isEmpty() ? m.orig : m.text;
+        String main = m.mine && !m.orig.isEmpty() ? m.orig : m.shown();
         String other = m.mine ? (m.orig.isEmpty() ? "" : m.text) : m.orig;
         b.addView(line(main, 0xFFFFFFFF, 16));
         if (!other.isEmpty() && !other.equals(main)) {

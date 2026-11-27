@@ -2099,7 +2099,7 @@ public class MurmurIME extends InputMethodService {
             android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(state);
             sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, sb.length(), 0);
             sb.setSpan(new android.text.style.ForegroundColorSpan(sending ? 0xFFFFFFFF : 0xFFCBD5E1), 0, sb.length(), 0);
-            sb.append('\n').append(thread(ch, incomingExpanded ? 20 : 2));
+            sb.append('\n').append(thread(ch, incomingExpanded ? ChatLog.MAX_MSGS : 2));
             if (offer != null) {
                 int os = sb.length();
                 sb.append("\n↪ ").append(ch.title()).append(" writes in ").append(offer)
@@ -2145,7 +2145,7 @@ public class MurmurIME extends InputMethodService {
         if (incomingScroll != null) {
             ViewGroup.LayoutParams lp = incomingScroll.getLayoutParams();
             boolean tall = hasThread && (incomingExpanded || text.length() > 150);
-            lp.height = tall ? dp(incomingExpanded ? 150 : 84) : ViewGroup.LayoutParams.WRAP_CONTENT;
+            lp.height = tall ? dp(incomingExpanded ? 220 : 84) : ViewGroup.LayoutParams.WRAP_CONTENT;
             incomingScroll.setLayoutParams(lp);
             incomingScroll.post(() -> incomingScroll.fullScroll(View.FOCUS_DOWN));
             incomingScroll.postDelayed(() -> incomingScroll.fullScroll(View.FOCUS_DOWN), 120);
@@ -2228,7 +2228,7 @@ public class MurmurIME extends InputMethodService {
             b.append(who).append(": ");
             b.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), s, b.length(), 0);
             if (m.mine) b.setSpan(new android.text.style.ForegroundColorSpan(0xFFC4B5FD), s, b.length(), 0);
-            b.append(m.mine && !m.orig.isEmpty() ? m.orig : m.text);
+            b.append(m.mine && !m.orig.isEmpty() ? m.orig : m.shown());
         }
         return b;
     }

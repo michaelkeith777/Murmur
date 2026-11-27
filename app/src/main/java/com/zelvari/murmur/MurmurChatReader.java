@@ -17,7 +17,8 @@ import java.util.concurrent.Executors;
  * Texting mode, open chat: WhatsApp and most chat apps post no notification for a reply in the
  * chat that's open on screen, so the notification reader never sees it. This service reads only
  * the message bubbles of the open chat in a few chat apps, and only while texting mode is on.
- * The messages already on screen when a chat opens are left alone; only new ones are translated.
+ * 2.2: every message of theirs it can see is translated, older ones and ones scrolled into view
+ * included. It can only read what the chat app has on screen, so older messages need a scroll up.
  */
 public class MurmurChatReader extends AccessibilityService {
     /** Message bubble text views in the chat apps it reads. */
@@ -170,19 +171,21 @@ public class MurmurChatReader extends AccessibilityService {
         }
         // A burst of several replies at once: the last three are plenty.
         while (fresh.size() > 3) fresh.remove(0);
-        // Just turned on (or a chat opened since): the other person's earlier messages on screen
-        // that were never translated, so a message from before he turned it on shows in English too.
-        String once = key + "@" + Prefs.sp(this).getLong(Prefs.TRANSLATE_SINCE, 0);
-        if (nameSure && !from.isEmpty() && !once.equals(caughtUp) && !caughtUpKeys.contains(once)) {
-            caughtUpKeys.add(once);
-            caughtUp = once;
-            List<String> earlier = new ArrayList<>();
-            for (String t : earlierTheirs(bubbles, ch == null ? null : ch.msgs)) {
-                if (!fresh.contains(t) && !Translate.wasSent(this, t)) earlier.add(t);
+        // 2.2: the whole chat, not just what's new. Every message of theirs on screen that isn't
+        // in the chat's thread yet is translated, each time it looks: when translate turns on, when
+        // the chat opens, and as he scrolls up through older messages. Up to 2.1 it was the newest
+        // eight on screen, once, so older messages and ones scrolled into view stayed in Spanish.
+        // Scrolled up, nothing on screen is new: what's at the bottom of the screen is older too.
+        boolean newest = atNewest(root);
+        if (!newest && nameSure && !from.isEmpty()) fresh.clear();
+        List<Integer> earlier = new ArrayList<>();
+        if (nameSure && !from.isEmpty()) {
+            for (int i : earlierTheirsIdx(bubbles, ch == null ? null : ch.msgs)) {
+                String t = bubbles.get(i).text;
+                if (!fresh.contains(t) && !Translate.wasSent(this, t)) earlier.add(i);
             }
-            fresh.addAll(0, earlier);
         }
-        if (fresh.isEmpty()) return;
+        if (fresh.isEmpty() && earlier.isEmpty()) return;
 
         final String apiKey = Prefs.get(this, Prefs.API_KEY, "");
         if (apiKey.isEmpty()) {
@@ -195,6 +198,25 @@ public class MurmurChatReader extends AccessibilityService {
         final String mine = Translate.mine(this);
         final String app = label(pkg);
         final Context ctx = getApplicationContext();
+        int started = 0;
+        List<Integer> place = new ArrayList<>();
+        for (int i : earlier) if (MurmurNotifications.claim(pkg, bubbles.get(i).text)) place.add(i);
+        if (!place.isEmpty()) {
+            // Into the thread at once, in screen order, each showing ⋯ until it's translated.
+            ChatLog.placeEarlier(this, pkg, app, from, texts, place, newest);
+            bubble(key);
+            for (int i : place) {
+                final String text = bubbles.get(i).text;
+                started++;
+                history.execute(() -> MurmurNotifications.handle(ctx, base, apiKey, model, mine, pkg, from, from, text, app, null, true, true));
+            }
+        }
+        if (started > 0) {
+            MurmurNotifications.diag(this, Prefs.DIAG_SEEN, app + " · " + from + ": translating " + started
+                    + " earlier message" + (started == 1 ? "" : "s") + " on screen");
+            MurmurNotifications.note(this, app + " (open chat): translating " + started + " earlier message"
+                    + (started == 1 ? "" : "s") + "…");
+        }
         for (String text : fresh) {
             if (!MurmurNotifications.claim(pkg, text)) continue;
             MurmurNotifications.diag(this, Prefs.DIAG_SEEN, app + " · " + (from.isEmpty() ? "someone" : from) + ": "
@@ -228,27 +250,65 @@ public class MurmurChatReader extends AccessibilityService {
         return keep;
     }
 
-    private String caughtUp = "";
-    private final java.util.Set<String> caughtUpKeys = new java.util.HashSet<>();
+    /**
+     * Whether the chat is at its newest message (its list can't scroll down any further). When
+     * it isn't and an earlier message has nothing around it that the thread has, he's scrolled up
+     * past everything read so far, so it goes at the start of the thread.
+     */
+    private static boolean atNewest(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo list = scrollingList(root, 0);
+        if (list == null) return true;
+        for (AccessibilityNodeInfo.AccessibilityAction a : list.getActionList()) {
+            if (a.getId() == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) return false;
+        }
+        return true;
+    }
 
-    /** How many of the other person's earlier messages on screen are translated when it turns on. */
-    static final int CATCH_UP = 8;
+    private static AccessibilityNodeInfo scrollingList(AccessibilityNodeInfo n, int depth) {
+        if (n == null || depth > 14) return null;
+        try {
+            CharSequence cls = n.getClassName();
+            if (n.isScrollable() && cls != null && (cls.toString().contains("RecyclerView") || cls.toString().contains("ListView"))) return n;
+            for (int i = 0; i < n.getChildCount(); i++) {
+                AccessibilityNodeInfo f = scrollingList(n.getChild(i), depth + 1);
+                if (f != null) return f;
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return null;
+    }
+
+    /** Earlier messages translate a few at a time, side by side; the thread keeps them in order. */
+    private final ExecutorService history = Executors.newFixedThreadPool(3);
 
     /**
-     * The other person's messages anywhere on screen (the newest {@link #CATCH_UP}) that the
-     * chat's thread doesn't have yet, oldest first.
+     * The most earlier messages started in one look. A screen holds far fewer; the rest (if any)
+     * go on the next look, a moment later.
      */
-    static List<String> earlierTheirs(List<Bubble> bubbles, List<ChatLog.Msg> log) {
+    static final int CATCH_UP = 30;
+
+    /**
+     * The other person's messages anywhere on screen that the chat's thread doesn't have yet,
+     * as positions in {@code bubbles}, oldest first (the newest {@link #CATCH_UP} of them).
+     */
+    static List<Integer> earlierTheirsIdx(List<Bubble> bubbles, List<ChatLog.Msg> log) {
         java.util.Set<String> have = new java.util.HashSet<>();
-        if (log != null) for (ChatLog.Msg m : log) if (!m.mine) have.add(m.orig.trim().replaceAll("\\s+", " "));
-        List<String> out = new ArrayList<>();
+        if (log != null) for (ChatLog.Msg m : log) if (!m.mine) have.add(ChatLog.norm(m.orig));
+        List<Integer> out = new ArrayList<>();
+        java.util.Set<String> taken = new java.util.HashSet<>();
         for (int i = bubbles.size() - 1; i >= 0 && out.size() < CATCH_UP; i--) {
             Bubble bb = bubbles.get(i);
             if (bb.mine || bb.text.length() > 1500 || NOT_A_MESSAGE.matcher(bb.text).matches()) continue;
-            String n = bb.text.trim().replaceAll("\\s+", " ");
-            if (have.contains(n) || out.contains(bb.text)) continue;
-            out.add(0, bb.text);
+            String n = ChatLog.norm(bb.text);
+            if (have.contains(n) || !taken.add(n)) continue;
+            out.add(0, i);
         }
+        return out;
+    }
+
+    static List<String> earlierTheirs(List<Bubble> bubbles, List<ChatLog.Msg> log) {
+        List<String> out = new ArrayList<>();
+        for (int i : earlierTheirsIdx(bubbles, log)) out.add(bubbles.get(i).text);
         return out;
     }
 
@@ -564,12 +624,12 @@ public class MurmurChatReader extends AccessibilityService {
         t.setTextSize(15);
         t.setLineSpacing(2 * d, 1f);
         StringBuilder b = new StringBuilder();
-        int count = expanded ? 12 : 1;
+        int count = expanded ? ChatLog.MAX_MSGS : 1;
         for (int i = Math.max(0, ch.msgs.size() - count); i < ch.msgs.size(); i++) {
             ChatLog.Msg m = ch.msgs.get(i);
             if (b.length() > 0) b.append("\n");
             String who = m.mine ? "You" : m.from.isEmpty() ? ch.title() : m.from;
-            b.append(who).append(": ").append(m.mine && !m.orig.isEmpty() ? m.orig : m.text);
+            b.append(who).append(": ").append(m.mine && !m.orig.isEmpty() ? m.orig : m.shown());
         }
         t.setText("💬 " + b);
         if (!expanded) t.setMaxLines(4);

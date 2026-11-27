@@ -262,6 +262,16 @@ public class MurmurNotifications extends NotificationListenerService {
     static void handle(Context ctx, String base, String key, String model, String mine, String pkg,
                        String chatName, String from, String text, String app, PendingIntent open,
                        boolean onScreen) {
+        handle(ctx, base, key, model, mine, pkg, chatName, from, text, app, open, onScreen, false);
+    }
+
+    /**
+     * {@code earlier}: one of their earlier messages read off the open chat's screen, already in
+     * its place in the thread (see {@link ChatLog#placeEarlier}); its translation fills it in.
+     */
+    static void handle(Context ctx, String base, String key, String model, String mine, String pkg,
+                       String chatName, String from, String text, String app, PendingIntent open,
+                       boolean onScreen, boolean earlier) {
         try {
             // 2.0: every reply is translated, with no "already in English" way out for the
             // translator, which used to leave some Spanish replies as they were. One more try
@@ -274,6 +284,12 @@ public class MurmurNotifications extends NotificationListenerService {
             String who = from == null || from.isEmpty() ? (chatName == null || chatName.isEmpty() ? "someone" : chatName) : from;
             // Already in his language: it still goes in the chat's thread, so the bar shows every reply.
             if (asIs) out = text;
+            if (earlier) {
+                ChatLog.Chat ch = ChatLog.fill(ctx, pkg, chatName, text, out);
+                if (ch != null) MurmurChatReader.bubble(ch.key);
+                diag(ctx, Prefs.DIAG_REPLY, app + " · " + who + ": an earlier message " + (asIs ? "already in " + mine : "translated to " + mine));
+                return;
+            }
             Translate.saveIncoming(ctx, from, out, app);
             ChatLog.Chat ch = ChatLog.add(ctx, pkg, app, chatName, from, text, out, false);
             diag(ctx, Prefs.DIAG_REPLY, app + " · " + who + ": " + (asIs ? "already in " + mine + ", shown as is" : "translated to " + mine));
@@ -291,6 +307,7 @@ public class MurmurNotifications extends NotificationListenerService {
                     + (shown ? "" : " (Murmur's notifications are off, so it's in Live Translate only)"));
         } catch (Exception e) {
             String m = e.getMessage();
+            if (earlier) ChatLog.fill(ctx, pkg, chatName, text, null);
             note(ctx, app + ": couldn't translate (" + (m == null ? "network problem" : m) + ")");
         }
     }
@@ -329,7 +346,7 @@ public class MurmurNotifications extends NotificationListenerService {
         for (int i = from; i < ch.msgs.size(); i++) {
             ChatLog.Msg m = ch.msgs.get(i);
             String who = m.mine ? "You" : m.from.isEmpty() ? ch.title() : m.from;
-            inbox.addLine(who + ": " + (m.mine && !m.orig.isEmpty() ? m.orig : m.text));
+            inbox.addLine(who + ": " + (m.mine && !m.orig.isEmpty() ? m.orig : m.shown()));
         }
         Notification.Builder nb = new Notification.Builder(c, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
