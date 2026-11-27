@@ -27,6 +27,10 @@ double-tap caps lock, auto-capitals, double-space for a period) with a big mic b
 the right. ⌨ goes back to your regular keyboard (long-press for the picker), ↶ undoes the
 last dictation.
 
+## What's new in 2.2.1
+
+- **Facebook Messenger works.** Messenger draws its chat's name and messages without the usual text views, so Murmur read nothing there and the bar said "open a chat". Murmur now reads any view's text or description, takes "Active 5 minutes ago", "Seen" and the top bar's buttons out, and finds the messages between the top bar and the message box even when the chat's list isn't a standard one.
+
 ## What's new in 2.2
 
 - **The whole open chat in English.** Turn translate on in a chat and every message of theirs on screen is translated, not just the newest eight. Scroll up and the older ones translate as they come into view. Each one goes in its place in the thread, showing ⋯ until its English is in.

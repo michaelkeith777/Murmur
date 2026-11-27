@@ -128,11 +128,24 @@ public class MurmurChatReader extends AccessibilityService {
         // Only a chat screen (one with a box to type in) counts, not the list of chats.
         boolean chatScreen = !bubbles.isEmpty() || hasTypingBox(root, 0);
         if (bubbles.isEmpty() && chatScreen) collectFallback(root, bubbles, 0);
+        if (bubbles.isEmpty() && chatScreen) collectBetween(root, bubbles);
         // Top to bottom, whatever order the app lists them in.
         java.util.Collections.sort(bubbles, (x, y) -> Integer.compare(x.top, y.top));
         // Tells the keyboard which chat is open, so its strip shows that chat's thread.
         final String from = chatScreen ? steadyName(root, pkg) : "";
         if (!chatScreen) nameWin = "";
+        if (!byId && !from.isEmpty()) {
+            // A description that names the sender ("John Toro, Hola"): just the message.
+            for (int i = 0; i < bubbles.size(); i++) {
+                Bubble bb = bubbles.get(i);
+                String t = stripSender(bb.text, from);
+                String y = stripMine(t);
+                if (y != null) bubbles.set(i, new Bubble(y, true, bb.top));
+                else if (!t.equals(bb.text)) bubbles.set(i, new Bubble(t, false, bb.top));
+            }
+            // The chat's name itself, read as a line of the chat: not a message.
+            for (int i = bubbles.size() - 1; i >= 0; i--) if (bubbles.get(i).text.equals(from)) bubbles.remove(i);
+        }
         ChatLog.setOpen(this, pkg, from, chatScreen && nameSure);
         if (!chatScreen) return;
         String key = ChatLog.key(pkg, from);
@@ -426,7 +439,60 @@ public class MurmurChatReader extends AccessibilityService {
 
     private static final java.util.regex.Pattern NOT_A_MESSAGE = java.util.regex.Pattern.compile(
             "(?i)^(\\d{1,2}:\\d{2}( ?[ap]\\.? ?m\\.?)?|today|yesterday|hoy|ayer|\\d+ unread messages?|message|mensaje|"
-            + "edited|editado|online|en l[ií]nea|typing…|escribiendo…|\\d+:\\d+)$");
+            + "edited|editado|online|en l[ií]nea|typing…|escribiendo…|\\d+:\\d+|"
+            // Messenger and other apps' status lines and buttons in the chat.
+            + "seen|visto|delivered|entregado|sent|enviado|sending|enviando|react|reaccionar|reply|responder|"
+            + "seen by .*|visto por .*|active now|activo ahora|active \\d+ ?\\w* ago|activ[oa] hace .*|"
+            + "you (sent|replied|reacted).*|enviaste.*|tap to .*|toca para .*|"
+            + "(mon|tue|wed|thu|fri|sat|sun)\\w* \\d{1,2}:\\d{2}.*|\\w{3} \\d{1,2}(, \\d{4})?( at)? \\d{1,2}:\\d{2}.*)$");
+
+    /** Words on a chat's top bar that are buttons, not the person's name. */
+    private static final java.util.regex.Pattern NOT_A_NAME = java.util.regex.Pattern.compile(
+            "(?i)^(back|navigate up|atr[aá]s|volver|call|voice call|audio call|video call|llamar|llamada.*|videollamada|"
+            + "info|information|conversation (info|information|details)|informaci[oó]n.*|more options|m[aá]s opciones|"
+            + "search|buscar|menu|men[uú]|open camera|c[aá]mara|messenger|chats?|profile( picture)?.*|foto del perfil.*)$");
+
+    /** For the tests: a line that's a time, a status or a button, not a message. */
+    static boolean notAMessage(String s) {
+        return NOT_A_MESSAGE.matcher(cleanText(s)).matches();
+    }
+
+    /** A text read off the screen, with a time stuck on the end taken off. */
+    static String cleanText(String s) {
+        if (s == null) return "";
+        String t = s.trim().replaceAll("\\s+", " ");
+        t = t.replaceAll("(?i)[,·•]\\s*(\\d{1,2}:\\d{2}( ?[ap]\\.? ?m\\.?)?|sent|seen|delivered|enviado|visto|entregado)$", "").trim();
+        return t;
+    }
+
+    /**
+     * A message read from a description that names who sent it ("John Toro, Hola" or
+     * "John Toro: Hola"): just the message.
+     */
+    static String stripSender(String s, String name) {
+        if (s == null || name == null || name.isEmpty()) return s;
+        for (String sep : new String[]{": ", ", ", " said ", " dijo "}) {
+            if (s.startsWith(name + sep) && s.length() > name.length() + sep.length()) return s.substring(name.length() + sep.length()).trim();
+        }
+        return s;
+    }
+
+    /** A message read from a description that says he sent it ("You: Hola"), or null. */
+    static String stripMine(String s) {
+        if (s == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)^(you|t[uú]|yo)(: |, | sent:? | enviaste:? )(.+)$").matcher(s);
+        return m.matches() ? m.group(3).trim() : null;
+    }
+
+    /** The person's name from a title read off the top bar, or "" when it's a button or a status. */
+    static String cleanName(String s) {
+        if (s == null) return "";
+        String t = s.trim().replaceAll("\\s+", " ");
+        // "John Toro, Active 5 minutes ago" or "John Toro Active now": just the name.
+        t = t.replaceAll("(?i)[,·•]?\\s*(active|activo|activa|online|en l[ií]nea|last seen|últ\\. vez)\\b.*$", "").trim();
+        if (t.length() < 2 || t.length() > 50 || NOT_A_NAME.matcher(t).matches() || NOT_A_MESSAGE.matcher(t).matches()) return "";
+        return t;
+    }
 
     /**
      * When an app update renames its bubble views, fall back to the text inside the chat's
@@ -440,7 +506,7 @@ public class MurmurChatReader extends AccessibilityService {
         if (inList) {
             android.graphics.Rect lr = new android.graphics.Rect();
             n.getBoundsInScreen(lr);
-            collectTexts(n, out, 0, lr);
+            collectTexts(n, out, 0, lr, null);
             return;
         }
         for (int i = 0; i < n.getChildCount(); i++) {
@@ -451,26 +517,72 @@ public class MurmurChatReader extends AccessibilityService {
         }
     }
 
-    private void collectTexts(AccessibilityNodeInfo n, List<Bubble> out, int depth, android.graphics.Rect list) {
-        if (n == null || depth > 30) return;
+    /**
+     * The texts in a chat's list. 2.2.1: any kind of view, not only TextViews, and a view's
+     * description when it shows no text of its own and nothing under it does. Facebook Messenger
+     * draws its messages that way, so up to 2.2 Murmur read nothing in a Messenger chat.
+     * {@code region}: only what's inside it (null: everything).
+     */
+    private int collectTexts(AccessibilityNodeInfo n, List<Bubble> out, int depth, android.graphics.Rect list,
+                             android.graphics.Rect region) {
+        if (n == null || depth > 30) return 0;
         String cls = n.getClassName() == null ? "" : n.getClassName().toString();
-        if (n.isEditable() || cls.endsWith("Button") || cls.endsWith("ImageView")) return;
+        if (n.isEditable() || cls.endsWith("Button") || cls.endsWith("ImageView") || cls.endsWith("EditText")) return 0;
+        int found = 0;
         CharSequence t = n.getText();
-        if (t != null && cls.endsWith("TextView")) {
-            String s = t.toString().trim();
-            if (s.length() > 1 && !NOT_A_MESSAGE.matcher(s).matches()) {
-                android.graphics.Rect r = new android.graphics.Rect();
-                n.getBoundsInScreen(r);
-                Boolean mine = side(r.left, r.right, list.left, list.right);
-                out.add(new Bubble(s, Boolean.TRUE.equals(mine), r.top));
-            }
-        }
+        if (t != null && addBubble(n, t.toString(), out, list, region)) found++;
         for (int i = 0; i < n.getChildCount(); i++) {
             try {
-                collectTexts(n.getChild(i), out, depth + 1, list);
+                found += collectTexts(n.getChild(i), out, depth + 1, list, region);
             } catch (RuntimeException ignored) {
             }
         }
+        if (found == 0 && t == null) {
+            CharSequence d = n.getContentDescription();
+            if (d != null && addBubble(n, d.toString(), out, list, region)) found++;
+        }
+        return found;
+    }
+
+    private boolean addBubble(AccessibilityNodeInfo n, String raw, List<Bubble> out, android.graphics.Rect list,
+                              android.graphics.Rect region) {
+        String s = cleanText(raw);
+        if (s.length() <= 1 || NOT_A_MESSAGE.matcher(s).matches()) return false;
+        android.graphics.Rect r = new android.graphics.Rect();
+        n.getBoundsInScreen(r);
+        if (r.width() <= 0 || r.height() <= 0) return false;
+        if (region != null && (r.top < region.top || r.bottom > region.bottom)) return false;
+        Boolean mine = side(r.left, r.right, list.left, list.right);
+        out.add(new Bubble(s, Boolean.TRUE.equals(mine), r.top));
+        return true;
+    }
+
+    /**
+     * Last resort, for an app whose chat isn't a list Android names: every text between the top
+     * bar and the box he types in.
+     */
+    private void collectBetween(AccessibilityNodeInfo root, List<Bubble> out) {
+        android.graphics.Rect box = new android.graphics.Rect();
+        if (!typingBoxBounds(root, 0, box)) return;
+        int sw = screenW();
+        int top = getResources().getDisplayMetrics().heightPixels / 8;
+        if (box.top <= top) return;
+        collectTexts(root, out, 0, new android.graphics.Rect(0, 0, sw, box.top), new android.graphics.Rect(0, top, sw, box.top));
+    }
+
+    private boolean typingBoxBounds(AccessibilityNodeInfo n, int depth, android.graphics.Rect into) {
+        if (n == null || depth > 40) return false;
+        if (n.isEditable()) {
+            n.getBoundsInScreen(into);
+            return true;
+        }
+        for (int i = 0; i < n.getChildCount(); i++) {
+            try {
+                if (typingBoxBounds(n.getChild(i), depth + 1, into)) return true;
+            } catch (RuntimeException ignored) {
+            }
+        }
+        return false;
     }
 
     private boolean hasTypingBox(AccessibilityNodeInfo n, int depth) {
@@ -552,13 +664,16 @@ public class MurmurChatReader extends AccessibilityService {
         CharSequence cls = n.getClassName();
         String c = cls == null ? "" : cls.toString();
         if (n.isEditable() || c.contains("RecyclerView") || c.contains("ListView")) return;
+        // 2.2.1: any view's text, or its description when it has none (Messenger's title bar has
+        // no TextViews), but never a button's or a picture's.
         CharSequence t = n.getText();
-        if (t != null && c.endsWith("TextView")) {
-            String s = t.toString().trim();
+        boolean button = c.endsWith("Button") || c.endsWith("ImageView");
+        if (t == null && !button) t = n.getContentDescription();
+        if (t != null && !button) {
+            String s = cleanName(t.toString());
             android.graphics.Rect r = new android.graphics.Rect();
             n.getBoundsInScreen(r);
-            if (s.length() > 0 && s.length() <= 50 && r.top >= 0 && r.top < limit && r.top < bestTop[0]
-                    && !NOT_A_MESSAGE.matcher(s).matches()) {
+            if (!s.isEmpty() && r.top >= 0 && r.top < limit && r.top < bestTop[0]) {
                 best[0] = s;
                 bestTop[0] = r.top;
             }
